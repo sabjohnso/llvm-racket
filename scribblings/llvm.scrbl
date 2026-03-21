@@ -372,9 +372,6 @@ Create an undefined value of the given type.}
 Create a constant string.  Pass @racket[0] for @racket[dont-null-terminate]
 to append a null byte.}
 
-@defproc[(LLVM-Const-String [str string?] [length exact-nonnegative-integer?] [dont-null-terminate _LLVM-Bool]) _LLVM-Value-Ref]{
-Like @racket[LLVM-Const-String-In-Context] but uses the global context.}
-
 @defproc[(LLVM-Const-Array [element-type _LLVM-Type-Ref] [values (listof _LLVM-Value-Ref)] [count exact-nonnegative-integer?]) _LLVM-Value-Ref]{
 Create a constant array.}
 

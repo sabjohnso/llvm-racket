@@ -12,7 +12,6 @@
          LLVM-Get-Undef
          ;; Aggregate constants
          LLVM-Const-String-In-Context
-         LLVM-Const-String
          LLVM-Const-Array
          LLVM-Const-Struct
          LLVM-Const-Named-Struct
@@ -51,15 +50,14 @@
   (_fun _LLVM-Context-Ref _string _uint _LLVM-Bool -> _LLVM-Value-Ref)
   #:wrap (prevent-gc-wrap 0))
 
-(define-llvm LLVM-Const-String
-  (_fun _string _uint _LLVM-Bool -> _LLVM-Value-Ref))
-
 (define-llvm LLVM-Const-Array
   (_fun _LLVM-Type-Ref (_list i _LLVM-Value-Ref) _uint -> _LLVM-Value-Ref)
   #:wrap (prevent-gc-wrap 0))
 
+;; Anchor to the first element value — transitively keeps context alive.
 (define-llvm LLVM-Const-Struct
-  (_fun (_list i _LLVM-Value-Ref) _uint _LLVM-Bool -> _LLVM-Value-Ref))
+  (_fun (_list i _LLVM-Value-Ref) _uint _LLVM-Bool -> _LLVM-Value-Ref)
+  #:wrap (prevent-gc-wrap 0))
 
 (define-llvm LLVM-Const-Named-Struct
   (_fun _LLVM-Type-Ref (_list i _LLVM-Value-Ref) _uint -> _LLVM-Value-Ref)

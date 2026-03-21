@@ -1,0 +1,129 @@
+#+TITLE: LLVM Racket — Milestone 3 Review
+#+DATE: [2026-03-21]
+#+STARTUP: overview
+
+* Summary
+
+Milestone 3 adds constants, global variables, linkage/visibility, and
+function attributes.  All planned bindings are implemented with correct
+FFI signatures.
+
+Initial review found GC anchoring gaps, test coverage holes, and a
+module export inconsistency.  All issues have been resolved.
+
+| Category          | Status          |
+|-------------------+-----------------|
+| Correctness       | Excellent       |
+| GC/Lifecycle      | Complete        |
+| Tests             | Comprehensive   |
+| Documentation     | Complete        |
+| Consistency       | Consistent      |
+| Plan tracking     | Accurate        |
+
+* Correctness
+
+All FFI signatures match the LLVM C API.  No bugs detected.
+
+* GC / Lifecycle
+
+** What's correct
+
+All constants are properly anchored:
+
+- Scalar constants (~Const-Int~, ~Const-Real~, ~Const-Null~,
+  ~Const-All-Ones~, ~Get-Undef~): anchored to type (arg 0) ✓
+- ~Const-String-In-Context~: anchored to context (arg 0) ✓
+- ~Const-Array~, ~Const-Named-Struct~: anchored to type (arg 0) ✓
+- ~Const-Struct~: anchored to first value element (arg 0) ✓
+- ~Const-GEP2~: anchored to type (arg 0) ✓
+- ~Const-Bit-Cast~, ~Const-Int-To-Ptr~, ~Const-Ptr-To-Int~: anchored
+  to dest type (arg 1) ✓
+- ~LLVM-Add-Global~: anchored to module (arg 0) ✓
+
+** DONE [#A] LLVM-Const-String removed
+CLOSED: [2026-03-21]
+
+Removed the deprecated ~LLVMConstString~ binding which used the implicit
+global context with no GC anchor.  Users should use
+~LLVM-Const-String-In-Context~ instead.
+
+** DONE [#A] LLVM-Const-Struct anchored
+CLOSED: [2026-03-21]
+
+Added ~(prevent-gc-wrap 0)~ to anchor the result to the first value
+element in the list, transitively keeping the context alive.
+
+* Tests
+
+76 tests total, all passing.
+
+** What's tested
+
+| Binding                        | IR test | JIT test |
+|--------------------------------+---------+----------|
+| Const-Int                      | ✓       | ✓        |
+| Const-Real                     | ✓       | —        |
+| Const-Null                     | ✓       | —        |
+| Const-All-Ones                 | ✓       | —        |
+| Get-Undef                      | ✓       | —        |
+| Const-String-In-Context        | ✓       | —        |
+| Const-Array                    | ✓       | —        |
+| Const-Struct                   | ✓       | —        |
+| Const-Named-Struct             | ✓       | —        |
+| Const-Bit-Cast                 | ✓       | —        |
+| Const-Int-To-Ptr               | ✓       | —        |
+| Const-Ptr-To-Int               | ✓       | —        |
+| Add-Global                     | ✓       | ✓        |
+| Set/Get-Initializer            | ✓       | ✓        |
+| Set-Global-Constant            | ✓       | —        |
+| Set-Alignment                  | ✓       | —        |
+| Set/Get-Linkage                | ✓       | —        |
+| Set/Get-Visibility             | ✓       | —        |
+| Create-Enum-Attribute          | ✓       | —        |
+| Create-String-Attribute        | ✓       | —        |
+| Add-Attribute-At-Index         | ✓       | —        |
+| Set-Function-Call-Conv          | ✓       | —        |
+
+** DONE [#B] Untested bindings
+CLOSED: [2026-03-21]
+
+Added tests for constant expressions (Bit-Cast, Int-To-Ptr, Ptr-To-Int),
+function attributes (Create-Enum-Attribute, Create-String-Attribute,
+Add-Attribute-At-Index, Set-Function-Call-Conv), Get-Initializer
+round-trip, and a JIT test using Const-Int in an add expression.
+
+* Documentation
+
+All bindings documented in ~scribblings/llvm.scrbl~:
+
+- Constants section: 13 bindings (Const-String removed) ✓
+- Global Variables section: all 5 bindings + linkage + visibility ✓
+- Function Attributes section: all 4 bindings ✓
+- ~_LLVM-Linkage~ enum: common values documented ✓
+- ~_LLVM-Visibility~ enum: all 3 values documented ✓
+
+** DONE [#B] LLVM-Const-String deprecation resolved
+CLOSED: [2026-03-21]
+
+Removed ~LLVM-Const-String~ entirely.  No deprecation warning needed.
+
+* Consistency
+
+** DONE [#B] core.rkt now re-exports enums
+CLOSED: [2026-03-21]
+
+~core.rkt~ now requires and re-exports ~enums.rkt~, so all enum types
+(predicates, linkage, visibility, etc.) are available through
+~llvm/private/ffi/core~.
+
+* Issues summary
+
+All issues resolved.
+
+| Priority | Issue                                        | Status   |
+|----------+----------------------------------------------+----------|
+| [#A]     | LLVM-Const-String has no GC anchor            | Removed  |
+| [#A]     | LLVM-Const-Struct has no GC anchor            | Fixed    |
+| [#B]     | 9 bindings never tested                       | Fixed    |
+| [#B]     | Const-String deprecation not documented       | Removed  |
+| [#B]     | core.rkt doesn't re-export enums              | Fixed    |

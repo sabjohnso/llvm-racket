@@ -10,6 +10,7 @@
 ;;   globals.rkt    — Global variables, linkage, visibility, function attributes
 ;;   builder.rkt    — Functions, basic blocks, builder, all instructions
 ;;   utility.rkt    — Messages, memory buffers
+;;   enums.rkt      — C enumerations (predicates, linkage, visibility, etc.)
 
 (require "context.rkt"
          "module.rkt"
@@ -17,7 +18,8 @@
          "constants.rkt"
          "globals.rkt"
          "builder.rkt"
-         "utility.rkt")
+         "utility.rkt"
+         "enums.rkt")
 
 (provide (all-from-out "context.rkt")
          (all-from-out "module.rkt")
@@ -25,4 +27,5 @@
          (all-from-out "constants.rkt")
          (all-from-out "globals.rkt")
          (all-from-out "builder.rkt")
-         (all-from-out "utility.rkt"))
+         (all-from-out "utility.rkt")
+         (all-from-out "enums.rkt"))
