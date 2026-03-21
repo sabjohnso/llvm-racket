@@ -199,6 +199,24 @@ Floating point comparison predicate for @racket[LLVM-Build-FCmp].
   @item{@racket['LLVMRealPredicateTrue] (15) --- always true}
 ]}
 
+@defthing[_LLVM-Linkage ctype?]{
+Linkage type for global values.  Common values:
+@itemlist[
+  @item{@racket['LLVMExternalLinkage] (0) --- externally visible (default)}
+  @item{@racket['LLVMInternalLinkage] (8) --- internal (like C @tt{static})}
+  @item{@racket['LLVMPrivateLinkage] (9) --- like internal, omitted from symbol table}
+  @item{@racket['LLVMWeakAnyLinkage] (5) --- weak linkage}
+  @item{@racket['LLVMCommonLinkage] (14) --- tentative definitions}
+]}
+
+@defthing[_LLVM-Visibility ctype?]{
+Visibility for global values.
+@itemlist[
+  @item{@racket['LLVMDefaultVisibility] (0)}
+  @item{@racket['LLVMHiddenVisibility] (1)}
+  @item{@racket['LLVMProtectedVisibility] (2)}
+]}
+
 @; ---------------------------------------------------------------------------
 @subsection{Core --- Contexts}
 
@@ -331,6 +349,98 @@ Create a fixed-length SIMD vector type of @racket[count] elements.}
 Create a function type. @racket[param-count] must equal
 @racket[(length param-types)]. Pass @racket[0] for @racket[is-vararg]
 for non-variadic functions.}
+
+@; ---------------------------------------------------------------------------
+@subsection{Core --- Constants}
+
+@defproc[(LLVM-Const-Int [type _LLVM-Type-Ref] [val exact-nonnegative-integer?] [sign-extend _LLVM-Bool]) _LLVM-Value-Ref]{
+Create an integer constant.  Pass @racket[0] for @racket[sign-extend] for unsigned.}
+
+@defproc[(LLVM-Const-Real [type _LLVM-Type-Ref] [val real?]) _LLVM-Value-Ref]{
+Create a floating point constant.}
+
+@defproc[(LLVM-Const-Null [type _LLVM-Type-Ref]) _LLVM-Value-Ref]{
+Create a null/zero constant of the given type.}
+
+@defproc[(LLVM-Const-All-Ones [type _LLVM-Type-Ref]) _LLVM-Value-Ref]{
+Create an all-ones constant (e.g., @tt{-1} for integers).}
+
+@defproc[(LLVM-Get-Undef [type _LLVM-Type-Ref]) _LLVM-Value-Ref]{
+Create an undefined value of the given type.}
+
+@defproc[(LLVM-Const-String-In-Context [ctx _LLVM-Context-Ref] [str string?] [length exact-nonnegative-integer?] [dont-null-terminate _LLVM-Bool]) _LLVM-Value-Ref]{
+Create a constant string.  Pass @racket[0] for @racket[dont-null-terminate]
+to append a null byte.}
+
+@defproc[(LLVM-Const-String [str string?] [length exact-nonnegative-integer?] [dont-null-terminate _LLVM-Bool]) _LLVM-Value-Ref]{
+Like @racket[LLVM-Const-String-In-Context] but uses the global context.}
+
+@defproc[(LLVM-Const-Array [element-type _LLVM-Type-Ref] [values (listof _LLVM-Value-Ref)] [count exact-nonnegative-integer?]) _LLVM-Value-Ref]{
+Create a constant array.}
+
+@defproc[(LLVM-Const-Struct [values (listof _LLVM-Value-Ref)] [count exact-nonnegative-integer?] [packed _LLVM-Bool]) _LLVM-Value-Ref]{
+Create an anonymous constant struct.}
+
+@defproc[(LLVM-Const-Named-Struct [type _LLVM-Type-Ref] [values (listof _LLVM-Value-Ref)] [count exact-nonnegative-integer?]) _LLVM-Value-Ref]{
+Create a constant of a named struct type.}
+
+@defproc[(LLVM-Const-GEP2 [type _LLVM-Type-Ref] [val _LLVM-Value-Ref] [indices (listof _LLVM-Value-Ref)] [num-indices exact-nonnegative-integer?]) _LLVM-Value-Ref]{
+Constant get-element-pointer expression.}
+
+@defproc[(LLVM-Const-Bit-Cast [val _LLVM-Value-Ref] [type _LLVM-Type-Ref]) _LLVM-Value-Ref]{
+Constant bitcast expression.}
+
+@defproc[(LLVM-Const-Int-To-Ptr [val _LLVM-Value-Ref] [type _LLVM-Type-Ref]) _LLVM-Value-Ref]{
+Constant integer-to-pointer expression.}
+
+@defproc[(LLVM-Const-Ptr-To-Int [val _LLVM-Value-Ref] [type _LLVM-Type-Ref]) _LLVM-Value-Ref]{
+Constant pointer-to-integer expression.}
+
+@; ---------------------------------------------------------------------------
+@subsection{Core --- Global Variables}
+
+@defproc[(LLVM-Add-Global [mod _LLVM-Module-Ref] [type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{
+Add a global variable to @racket[mod].}
+
+@defproc[(LLVM-Set-Initializer [global _LLVM-Value-Ref] [val _LLVM-Value-Ref]) void?]{
+Set the initializer for a global variable.}
+
+@defproc[(LLVM-Get-Initializer [global _LLVM-Value-Ref]) (or/c _LLVM-Value-Ref #f)]{
+Get the initializer of a global variable, or @racket[#f] if none.}
+
+@defproc[(LLVM-Set-Global-Constant [global _LLVM-Value-Ref] [is-constant _LLVM-Bool]) void?]{
+Mark a global variable as constant.}
+
+@defproc[(LLVM-Set-Alignment [val _LLVM-Value-Ref] [bytes exact-nonnegative-integer?]) void?]{
+Set the alignment of a global variable or alloca.}
+
+@defproc[(LLVM-Set-Linkage [global _LLVM-Value-Ref] [linkage _LLVM-Linkage]) void?]{
+Set the linkage type of a global value (function or global variable).}
+
+@defproc[(LLVM-Get-Linkage [global _LLVM-Value-Ref]) _LLVM-Linkage]{
+Get the linkage type of a global value.}
+
+@defproc[(LLVM-Set-Visibility [global _LLVM-Value-Ref] [visibility _LLVM-Visibility]) void?]{
+Set the visibility of a global value.}
+
+@defproc[(LLVM-Get-Visibility [global _LLVM-Value-Ref]) _LLVM-Visibility]{
+Get the visibility of a global value.}
+
+@; ---------------------------------------------------------------------------
+@subsection{Core --- Function Attributes}
+
+@defproc[(LLVM-Create-Enum-Attribute [ctx _LLVM-Context-Ref] [kind-id exact-nonnegative-integer?] [val exact-nonnegative-integer?]) cpointer?]{
+Create an enum attribute by kind ID and value.}
+
+@defproc[(LLVM-Create-String-Attribute [ctx _LLVM-Context-Ref] [key string?] [key-length exact-nonnegative-integer?] [value string?] [value-length exact-nonnegative-integer?]) cpointer?]{
+Create a string attribute.}
+
+@defproc[(LLVM-Add-Attribute-At-Index [fn _LLVM-Value-Ref] [index exact-nonnegative-integer?] [attr cpointer?]) void?]{
+Add an attribute to a function at the given index.  Index 0 is the return
+value, indices 1+ are parameters.}
+
+@defproc[(LLVM-Set-Function-Call-Conv [fn _LLVM-Value-Ref] [cc exact-nonnegative-integer?]) void?]{
+Set the calling convention for a function.}
 
 @; ---------------------------------------------------------------------------
 @subsection{Core --- Functions}

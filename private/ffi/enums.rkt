@@ -8,6 +8,8 @@
          _LLVM-Reloc-Mode
          _LLVM-Code-Gen-File-Type
          _LLVM-Int-Predicate
+         _LLVM-Linkage
+         _LLVM-Visibility
          _LLVM-Real-Predicate)
 
 (define _LLVM-Verifier-Failure-Action
@@ -72,3 +74,27 @@
            LLVMRealULE
            LLVMRealUNE
            LLVMRealPredicateTrue)))
+
+(define _LLVM-Linkage
+  (_enum '(LLVMExternalLinkage = 0
+           LLVMAvailableExternallyLinkage
+           LLVMLinkOnceAnyLinkage
+           LLVMLinkOnceODRLinkage
+           LLVMLinkOnceODRAutoHideLinkage
+           LLVMWeakAnyLinkage
+           LLVMWeakODRLinkage
+           LLVMAppendingLinkage
+           LLVMInternalLinkage
+           LLVMPrivateLinkage
+           LLVMDLLImportLinkage
+           LLVMDLLExportLinkage
+           LLVMExternalWeakLinkage
+           LLVMGhostLinkage
+           LLVMCommonLinkage
+           LLVMLinkerPrivateLinkage
+           LLVMLinkerPrivateWeakLinkage)))
+
+(define _LLVM-Visibility
+  (_enum '(LLVMDefaultVisibility = 0
+           LLVMHiddenVisibility
+           LLVMProtectedVisibility)))
