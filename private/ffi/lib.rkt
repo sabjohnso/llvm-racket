@@ -1,0 +1,56 @@
+#lang racket/base
+
+(require ffi/unsafe
+         ffi/unsafe/define
+         (for-syntax racket/base
+                     racket/string))
+
+(provide llvm-lib
+         define-llvm
+         kebab->pascal)
+
+;; Try to load libLLVM from a specific directory with version fallback.
+(define (try-load-from dir)
+  (define versions '("20" "19" "18" "17" "16" "15" ""))
+  (for/or ([v (in-list versions)])
+    (with-handlers ([exn:fail? (λ (_) #f)])
+      (ffi-lib (build-path dir (string-append "libLLVM-" v))))))
+
+;; Well-known LLVM installation directories.
+(define search-dirs
+  (append
+   ;; Debian/Ubuntu versioned paths
+   (for/list ([v (in-range 20 14 -1)])
+     (format "/usr/lib/llvm-~a/lib" v))
+   (list "/usr/lib"
+         "/usr/lib64"
+         "/usr/local/lib")))
+
+;; Load libLLVM shared library.
+;; Priority: LLVM_LIB_PATH env var > default search > known directories.
+(define llvm-lib
+  (or
+   ;; 1. Explicit path from env var
+   (let ([custom-path (getenv "LLVM_LIB_PATH")])
+     (and custom-path (ffi-lib custom-path)))
+   ;; 2. Default system library search
+   (with-handlers ([exn:fail? (λ (_) #f)])
+     (ffi-lib "libLLVM" '("20" "19" "18" "17" "16" "15" "")))
+   ;; 3. Search well-known directories
+   (for/or ([dir (in-list search-dirs)])
+     (and (directory-exists? dir) (try-load-from dir)))
+   ;; 4. Give up
+   (error 'llvm-lib "could not find libLLVM shared library")))
+
+;; Naming convention: LLVM-Context-Create → LLVMContextCreate
+;; Bound via define-syntax so define-ffi-definer can retrieve it
+;; with syntax-local-value at macro expansion time.
+(define-syntax kebab->pascal
+  (lambda (stx)
+    (datum->syntax stx
+      (string->symbol
+       (string-replace (symbol->string (syntax-e stx)) "-" "")))))
+
+(define-ffi-definer define-llvm llvm-lib
+  #:make-c-id kebab->pascal)
+
