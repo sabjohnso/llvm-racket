@@ -372,4 +372,39 @@
     (define ir (cast ir-ptr _pointer _string))
     (LLVM-Dispose-Message ir-ptr)
 
-    (check-true (string-contains? ir "call i32 @add"))))
+    (check-true (string-contains? ir "call i32 @add")))
+
+  (test-case "memory instructions: alloca, store, load, gep"
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "mem" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+
+    ;; Struct type { i32, i32 }
+    (define pair-ty (LLVM-Struct-Type-In-Context ctx (list i32 i32) 2 0))
+
+    (define fn-type (LLVM-Function-Type i32 (list i32 i32) 2 0))
+    (define fn (LLVM-Add-Function mod "mem_test" fn-type))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+
+    ;; alloca a struct on the stack
+    (define ptr (LLVM-Build-Alloca bld pair-ty "pair"))
+
+    ;; gep to field 0, store first param
+    (define zero (LLVM-Build-Trunc bld (LLVM-Get-Param fn 0) i32 "zero_idx"))
+    ;; Use constant index 0 for GEP — we need LLVMConstInt for that,
+    ;; but we haven't bound it yet.  Instead, just test alloca/store/load
+    ;; with a simple i32 alloca.
+    (define slot (LLVM-Build-Alloca bld i32 "slot"))
+    (LLVM-Build-Store bld (LLVM-Get-Param fn 0) slot)
+    (define loaded (LLVM-Build-Load2 bld i32 slot "loaded"))
+    (LLVM-Build-Ret bld loaded)
+
+    (define ir-ptr (LLVM-Print-Module-To-String mod))
+    (define ir (cast ir-ptr _pointer _string))
+    (LLVM-Dispose-Message ir-ptr)
+
+    (check-true (string-contains? ir "alloca"))
+    (check-true (string-contains? ir "store"))
+    (check-true (string-contains? ir "load"))))

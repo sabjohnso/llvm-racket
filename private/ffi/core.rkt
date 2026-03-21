@@ -80,6 +80,10 @@
          LLVM-Build-Int-To-Ptr
          LLVM-Build-Ptr-To-Int
          LLVM-Build-Call2
+         LLVM-Build-Alloca
+         LLVM-Build-Load2
+         LLVM-Build-Store
+         LLVM-Build-GEP2
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
@@ -354,6 +358,29 @@
         _LLVM-Value-Ref                 ; function
         (_list i _LLVM-Value-Ref)       ; args
         _uint                           ; num args
+        _string                         ; name
+        -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; Memory
+(define-llvm LLVM-Build-Alloca
+  (_fun _LLVM-Builder-Ref _LLVM-Type-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Load2
+  (_fun _LLVM-Builder-Ref _LLVM-Type-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Store
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-GEP2
+  (_fun _LLVM-Builder-Ref
+        _LLVM-Type-Ref                  ; source element type
+        _LLVM-Value-Ref                 ; pointer
+        (_list i _LLVM-Value-Ref)       ; indices
+        _uint                           ; num indices
         _string                         ; name
         -> _LLVM-Value-Ref)
   #:wrap (lambda (proc) (instruction-wrap proc)))

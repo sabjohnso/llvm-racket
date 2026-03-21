@@ -528,6 +528,44 @@ function's type (required for opaque pointer support).  @racket[num-args]
 must equal @racket[(length args)].  Use @racket[""] for @racket[name]
 when the function returns @tt{void}.}
 
+@subsubsection{Memory}
+
+@defproc[(LLVM-Build-Alloca
+           [builder _LLVM-Builder-Ref]
+           [type _LLVM-Type-Ref]
+           [name string?])
+         _LLVM-Value-Ref]{
+Allocate stack space for a value of @racket[type].  Returns a pointer.}
+
+@defproc[(LLVM-Build-Load2
+           [builder _LLVM-Builder-Ref]
+           [type _LLVM-Type-Ref]
+           [ptr _LLVM-Value-Ref]
+           [name string?])
+         _LLVM-Value-Ref]{
+Load a value of @racket[type] from @racket[ptr].  Uses the opaque-pointer
+compatible @tt{LLVMBuildLoad2}.}
+
+@defproc[(LLVM-Build-Store
+           [builder _LLVM-Builder-Ref]
+           [val _LLVM-Value-Ref]
+           [ptr _LLVM-Value-Ref])
+         _LLVM-Value-Ref]{
+Store @racket[val] to @racket[ptr].}
+
+@defproc[(LLVM-Build-GEP2
+           [builder _LLVM-Builder-Ref]
+           [type _LLVM-Type-Ref]
+           [ptr _LLVM-Value-Ref]
+           [indices (listof _LLVM-Value-Ref)]
+           [num-indices exact-nonnegative-integer?]
+           [name string?])
+         _LLVM-Value-Ref]{
+Compute a pointer to a sub-element of an aggregate (struct field, array
+element).  @racket[type] is the source element type.  @racket[indices]
+are the GEP indices (the first indexes into the pointer, subsequent
+indices index into aggregate types).}
+
 @subsubsection{Terminators}
 
 @defproc[(LLVM-Build-Ret
@@ -729,6 +767,13 @@ still reachable.
 When a module is passed to @racket[LLVM-Create-MCJIT-Compiler-For-Module],
 its ownership transfers to the engine.  The module's finalizer is canceled
 and the engine takes responsibility for freeing it.
+
+@bold{Context isolation.}  Every type, module, builder, and function
+belongs to exactly one @racket[_LLVM-Context-Ref].  Do not mix objects
+from different contexts --- for example, do not use a type created in
+one context to define a function in a module from another context.
+LLVM will not detect the mismatch; the result is silent corruption or
+a crash.  When in doubt, create a single context and use it everywhere.
 
 @; ---------------------------------------------------------------------------
 @section{Quick Start}

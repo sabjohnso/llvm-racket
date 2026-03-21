@@ -471,4 +471,62 @@
     (define f (cast (LLVM-Get-Function-Address ee "caller")
                     _uint64 (_fun _int32 _int32 -> _int32)))
     (check-equal? (f 3 4) 7)
-    (check-equal? (f 100 -50) 50)))
+    (check-equal? (f 100 -50) 50))
+
+  ;; ---- Memory ----------------------------------------------------------------
+
+  (test-case "JIT alloca/store/load round-trip"
+    ;; f(x) = { slot = alloca i32; store x, slot; load slot }
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "store_load" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "store_load"
+                 (LLVM-Function-Type i32 (list i32) 1 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (define slot (LLVM-Build-Alloca bld i32 "slot"))
+    (LLVM-Build-Store bld (LLVM-Get-Param fn 0) slot)
+    (LLVM-Build-Ret bld (LLVM-Build-Load2 bld i32 slot "loaded"))
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "store_load")
+                    _uint64 (_fun _int32 -> _int32)))
+    (check-equal? (f 42) 42)
+    (check-equal? (f -7) -7)
+    (check-equal? (f 0) 0))
+
+  (test-case "JIT swap via alloca/store/load"
+    ;; swap(a, b) = { sa = alloca; sb = alloca; store a,sa; store b,sb;
+    ;;                return load(sa) + load(sb)*0 ... }
+    ;; Actually: return b (store a, load b proves store/load work independently)
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "swap" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "second"
+                 (LLVM-Function-Type i32 (list i32 i32) 2 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (define sa (LLVM-Build-Alloca bld i32 "sa"))
+    (define sb (LLVM-Build-Alloca bld i32 "sb"))
+    (LLVM-Build-Store bld (LLVM-Get-Param fn 0) sa)
+    (LLVM-Build-Store bld (LLVM-Get-Param fn 1) sb)
+    ;; Return value from sb (which holds the second param)
+    (LLVM-Build-Ret bld (LLVM-Build-Load2 bld i32 sb "val"))
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "second")
+                    _uint64 (_fun _int32 _int32 -> _int32)))
+    (check-equal? (f 10 20) 20)
+    (check-equal? (f 99 -1) -1)))
