@@ -359,6 +359,16 @@ All binary arithmetic instructions take @racket[builder], @racket[lhs],
 @defproc[(LLVM-Build-FDiv [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point divide.}
 @defproc[(LLVM-Build-FNeg [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point negation.}
 
+@subsubsection{Bitwise}
+
+@defproc[(LLVM-Build-And [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Bitwise AND.}
+@defproc[(LLVM-Build-Or [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Bitwise OR.}
+@defproc[(LLVM-Build-Xor [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Bitwise XOR.}
+@defproc[(LLVM-Build-Shl [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Shift left.}
+@defproc[(LLVM-Build-LShr [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Logical shift right (zero-fill).}
+@defproc[(LLVM-Build-AShr [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Arithmetic shift right (sign-extending).}
+@defproc[(LLVM-Build-Not [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Bitwise NOT (ones' complement).}
+
 @subsubsection{Terminators}
 
 @defproc[(LLVM-Build-Ret

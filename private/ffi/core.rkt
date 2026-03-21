@@ -51,6 +51,13 @@
          LLVM-Build-FMul
          LLVM-Build-FDiv
          LLVM-Build-FNeg
+         LLVM-Build-And
+         LLVM-Build-Or
+         LLVM-Build-Xor
+         LLVM-Build-Shl
+         LLVM-Build-LShr
+         LLVM-Build-AShr
+         LLVM-Build-Not
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
@@ -249,6 +256,15 @@
 (define-llvm LLVM-Build-FDiv   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
 (define-llvm LLVM-Build-Neg    _build-unop  #:wrap (lambda (proc) (instruction-wrap proc)))
 (define-llvm LLVM-Build-FNeg   _build-unop  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; Bitwise
+(define-llvm LLVM-Build-And    _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Or     _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Xor    _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Shl    _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-LShr   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-AShr   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Not    _build-unop  #:wrap (lambda (proc) (instruction-wrap proc)))
 
 (define-llvm LLVM-Build-Ret
   (_fun _LLVM-Builder-Ref _LLVM-Value-Ref -> _LLVM-Value-Ref)

@@ -161,4 +161,41 @@
   (test-case "JIT fneg(3.14) = -3.14"
     (define f (jit-f64-unop "fneg"
                 (lambda (bld a) (LLVM-Build-Ret bld (LLVM-Build-FNeg bld a "r")))))
-    (check-= (f 3.14) -3.14 0.0)))
+    (check-= (f 3.14) -3.14 0.0))
+
+  ;; ---- Bitwise ---------------------------------------------------------------
+
+  (test-case "JIT and(0xFF, 0x0F) = 0x0F"
+    (define f (jit-i32-binop "and"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-And bld a b "r")))))
+    (check-equal? (f #xFF #x0F) #x0F))
+
+  (test-case "JIT or(0xF0, 0x0F) = 0xFF"
+    (define f (jit-i32-binop "or"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-Or bld a b "r")))))
+    (check-equal? (f #xF0 #x0F) #xFF))
+
+  (test-case "JIT xor(0xFF, 0x0F) = 0xF0"
+    (define f (jit-i32-binop "xor"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-Xor bld a b "r")))))
+    (check-equal? (f #xFF #x0F) #xF0))
+
+  (test-case "JIT shl(1, 4) = 16"
+    (define f (jit-i32-binop "shl"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-Shl bld a b "r")))))
+    (check-equal? (f 1 4) 16))
+
+  (test-case "JIT lshr(16, 2) = 4"
+    (define f (jit-i32-binop "lshr"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-LShr bld a b "r")))))
+    (check-equal? (f 16 2) 4))
+
+  (test-case "JIT ashr(-16, 2) = -4"
+    (define f (jit-i32-binop "ashr"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-AShr bld a b "r")))))
+    (check-equal? (f -16 2) -4))
+
+  (test-case "JIT not(0) = -1"
+    (define f (jit-i32-unop "not"
+                (lambda (bld a) (LLVM-Build-Ret bld (LLVM-Build-Not bld a "r")))))
+    (check-equal? (f 0) -1)))
