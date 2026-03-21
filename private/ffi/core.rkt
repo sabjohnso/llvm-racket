@@ -37,6 +37,20 @@
          LLVM-Create-Builder-In-Context
          LLVM-Position-Builder-At-End
          LLVM-Build-Add
+         LLVM-Build-Sub
+         LLVM-Build-NSWSub
+         LLVM-Build-Mul
+         LLVM-Build-NSWMul
+         LLVM-Build-SDiv
+         LLVM-Build-UDiv
+         LLVM-Build-SRem
+         LLVM-Build-URem
+         LLVM-Build-Neg
+         LLVM-Build-FAdd
+         LLVM-Build-FSub
+         LLVM-Build-FMul
+         LLVM-Build-FDiv
+         LLVM-Build-FNeg
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
@@ -212,9 +226,29 @@
     (anchor-instruction! result builder)
     result))
 
-(define-llvm LLVM-Build-Add
-  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
-  #:wrap (lambda (proc) (instruction-wrap proc)))
+;; Binary arithmetic: (builder, lhs, rhs, name) -> value
+(define _build-binop
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref))
+
+;; Unary arithmetic: (builder, val, name) -> value
+(define _build-unop
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref))
+
+(define-llvm LLVM-Build-Add    _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Sub    _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-NSWSub _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Mul    _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-NSWMul _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-SDiv   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-UDiv   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-SRem   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-URem   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FAdd   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FSub   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FMul   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FDiv   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Neg    _build-unop  #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FNeg   _build-unop  #:wrap (lambda (proc) (instruction-wrap proc)))
 
 (define-llvm LLVM-Build-Ret
   (_fun _LLVM-Builder-Ref _LLVM-Value-Ref -> _LLVM-Value-Ref)

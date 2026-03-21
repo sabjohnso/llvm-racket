@@ -8,37 +8,157 @@
            llvm/private/ffi/target
            llvm/private/ffi/execution-engine)
 
-  (test-case "MCJIT: build add(i32,i32), JIT compile, call add(3,4) = 7"
-    ;; Initialize
+  ;; Helper: build a two-arg i32 function, JIT it, return a callable.
+  ;; body-builder receives (builder, param-a, param-b) and must emit
+  ;; instructions ending with ret.
+  (define (jit-i32-binop name body-builder)
     (Initialize-Native-Target!)
     (LLVM-Link-In-MCJIT)
-
-    ;; Build IR
     (define ctx (LLVM-Context-Create))
-    (define mod (LLVM-Module-Create-With-Name-In-Context "jit_test" ctx))
+    (define mod (LLVM-Module-Create-With-Name-In-Context name ctx))
     (define i32 (LLVM-Int32-Type-In-Context ctx))
-    (define fn-type (LLVM-Function-Type i32 (list i32 i32) 2 0))
-    (define fn (LLVM-Add-Function mod "add" fn-type))
-    (define entry (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
-    (define builder (LLVM-Create-Builder-In-Context ctx))
-    (LLVM-Position-Builder-At-End builder entry)
-    (LLVM-Build-Ret builder
-                    (LLVM-Build-Add builder
-                                   (LLVM-Get-Param fn 0)
-                                   (LLVM-Get-Param fn 1) "tmp"))
-
-    ;; Verify — raises on failure
+    (define fn (LLVM-Add-Function mod name
+                 (LLVM-Function-Type i32 (list i32 i32) 2 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (body-builder bld (LLVM-Get-Param fn 0) (LLVM-Get-Param fn 1))
     (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
-
-    ;; Create MCJIT engine — raises on failure, returns engine
     (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
     (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
     (define ee
       (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (cast (LLVM-Get-Function-Address ee name)
+          _uint64 (_fun _int32 _int32 -> _int32)))
 
-    ;; Call via LLVM-Get-Function-Address
-    (define addr (LLVM-Get-Function-Address ee "add"))
-    (check-true (> addr 0) "function address should be non-zero")
+  ;; Helper: one-arg i32 function.
+  (define (jit-i32-unop name body-builder)
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context name ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod name
+                 (LLVM-Function-Type i32 (list i32) 1 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (body-builder bld (LLVM-Get-Param fn 0))
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (cast (LLVM-Get-Function-Address ee name)
+          _uint64 (_fun _int32 -> _int32)))
 
-    (define add-fn (cast addr _uint64 (_fun _int32 _int32 -> _int32)))
-    (check-equal? (add-fn 3 4) 7 "add(3, 4) should equal 7")))
+  ;; Helper: two-arg double function.
+  (define (jit-f64-binop name body-builder)
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context name ctx))
+    (define dbl (LLVM-Double-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod name
+                 (LLVM-Function-Type dbl (list dbl dbl) 2 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (body-builder bld (LLVM-Get-Param fn 0) (LLVM-Get-Param fn 1))
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (cast (LLVM-Get-Function-Address ee name)
+          _uint64 (_fun _double _double -> _double)))
+
+  ;; Helper: one-arg double function.
+  (define (jit-f64-unop name body-builder)
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context name ctx))
+    (define dbl (LLVM-Double-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod name
+                 (LLVM-Function-Type dbl (list dbl) 1 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (body-builder bld (LLVM-Get-Param fn 0))
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (cast (LLVM-Get-Function-Address ee name)
+          _uint64 (_fun _double -> _double)))
+
+  ;; ---- Integer arithmetic ----------------------------------------------------
+
+  (test-case "JIT add(3, 4) = 7"
+    (define f (jit-i32-binop "add"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-Add bld a b "r")))))
+    (check-equal? (f 3 4) 7))
+
+  (test-case "JIT sub(10, 3) = 7"
+    (define f (jit-i32-binop "sub"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-Sub bld a b "r")))))
+    (check-equal? (f 10 3) 7))
+
+  (test-case "JIT mul(6, 7) = 42"
+    (define f (jit-i32-binop "mul"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-Mul bld a b "r")))))
+    (check-equal? (f 6 7) 42))
+
+  (test-case "JIT sdiv(42, 6) = 7"
+    (define f (jit-i32-binop "sdiv"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-SDiv bld a b "r")))))
+    (check-equal? (f 42 6) 7))
+
+  (test-case "JIT udiv(42, 6) = 7"
+    (define f (jit-i32-binop "udiv"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-UDiv bld a b "r")))))
+    (check-equal? (f 42 6) 7))
+
+  (test-case "JIT srem(10, 3) = 1"
+    (define f (jit-i32-binop "srem"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-SRem bld a b "r")))))
+    (check-equal? (f 10 3) 1))
+
+  (test-case "JIT urem(10, 3) = 1"
+    (define f (jit-i32-binop "urem"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-URem bld a b "r")))))
+    (check-equal? (f 10 3) 1))
+
+  (test-case "JIT neg(5) = -5"
+    (define f (jit-i32-unop "neg"
+                (lambda (bld a) (LLVM-Build-Ret bld (LLVM-Build-Neg bld a "r")))))
+    (check-equal? (f 5) -5))
+
+  ;; ---- Floating point arithmetic ---------------------------------------------
+
+  (test-case "JIT fadd(1.5, 2.5) = 4.0"
+    (define f (jit-f64-binop "fadd"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-FAdd bld a b "r")))))
+    (check-= (f 1.5 2.5) 4.0 0.0))
+
+  (test-case "JIT fsub(10.0, 3.5) = 6.5"
+    (define f (jit-f64-binop "fsub"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-FSub bld a b "r")))))
+    (check-= (f 10.0 3.5) 6.5 0.0))
+
+  (test-case "JIT fmul(3.0, 2.5) = 7.5"
+    (define f (jit-f64-binop "fmul"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-FMul bld a b "r")))))
+    (check-= (f 3.0 2.5) 7.5 0.0))
+
+  (test-case "JIT fdiv(7.5, 2.5) = 3.0"
+    (define f (jit-f64-binop "fdiv"
+                (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-FDiv bld a b "r")))))
+    (check-= (f 7.5 2.5) 3.0 0.0))
+
+  (test-case "JIT fneg(3.14) = -3.14"
+    (define f (jit-f64-unop "fneg"
+                (lambda (bld a) (LLVM-Build-Ret bld (LLVM-Build-FNeg bld a "r")))))
+    (check-= (f 3.14) -3.14 0.0)))

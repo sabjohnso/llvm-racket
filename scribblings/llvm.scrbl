@@ -335,13 +335,31 @@ Create an IR builder in @racket[ctx]. Must be freed with
          void?]{
 Position @racket[builder] at the end of @racket[bb].}
 
-@defproc[(LLVM-Build-Add
-           [builder _LLVM-Builder-Ref]
-           [lhs _LLVM-Value-Ref]
-           [rhs _LLVM-Value-Ref]
-           [name string?])
-         _LLVM-Value-Ref]{
-Build an integer add instruction.}
+@subsubsection{Integer Arithmetic}
+
+All binary arithmetic instructions take @racket[builder], @racket[lhs],
+@racket[rhs], and @racket[name] parameters and return a @racket[_LLVM-Value-Ref].
+
+@defproc[(LLVM-Build-Add [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Integer add.}
+@defproc[(LLVM-Build-Sub [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Integer subtract.}
+@defproc[(LLVM-Build-NSWSub [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Integer subtract with no signed wrap.}
+@defproc[(LLVM-Build-Mul [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Integer multiply.}
+@defproc[(LLVM-Build-NSWMul [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Integer multiply with no signed wrap.}
+@defproc[(LLVM-Build-SDiv [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Signed integer division.}
+@defproc[(LLVM-Build-UDiv [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Unsigned integer division.}
+@defproc[(LLVM-Build-SRem [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Signed integer remainder.}
+@defproc[(LLVM-Build-URem [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Unsigned integer remainder.}
+@defproc[(LLVM-Build-Neg [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Integer negation.}
+
+@subsubsection{Floating Point Arithmetic}
+
+@defproc[(LLVM-Build-FAdd [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point add.}
+@defproc[(LLVM-Build-FSub [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point subtract.}
+@defproc[(LLVM-Build-FMul [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point multiply.}
+@defproc[(LLVM-Build-FDiv [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point divide.}
+@defproc[(LLVM-Build-FNeg [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Floating point negation.}
+
+@subsubsection{Terminators}
 
 @defproc[(LLVM-Build-Ret
            [builder _LLVM-Builder-Ref]
