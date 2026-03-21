@@ -353,4 +353,122 @@
                          _uint64 (_fun _int32 _int32 -> _int32)))
     (check-equal? (max-fn 10 3) 10)
     (check-equal? (max-fn 3 10) 10)
-    (check-equal? (max-fn 5 5) 5)))
+    (check-equal? (max-fn 5 5) 5))
+
+  ;; ---- Cast / conversion ------------------------------------------------------
+
+  (test-case "JIT trunc i32 -> i8 -> zext i32"
+    ;; trunc to i8 then zext back: 0x1FF -> 0xFF -> 0xFF
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "trunc_zext" ctx))
+    (define i8  (LLVM-Int8-Type-In-Context ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "trunc_zext"
+                 (LLVM-Function-Type i32 (list i32) 1 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (define a (LLVM-Get-Param fn 0))
+    (define t (LLVM-Build-Trunc bld a i8 "t"))
+    (define z (LLVM-Build-ZExt bld t i32 "z"))
+    (LLVM-Build-Ret bld z)
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "trunc_zext")
+                    _uint64 (_fun _int32 -> _int32)))
+    (check-equal? (f #x1FF) #xFF)
+    (check-equal? (f #x0A) #x0A))
+
+  (test-case "JIT sext i8 -> i32: -1 stays -1"
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "sext" ctx))
+    (define i8  (LLVM-Int8-Type-In-Context ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "sext_test"
+                 (LLVM-Function-Type i32 (list i32) 1 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (define t (LLVM-Build-Trunc bld (LLVM-Get-Param fn 0) i8 "t"))
+    (define s (LLVM-Build-SExt bld t i32 "s"))
+    (LLVM-Build-Ret bld s)
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "sext_test")
+                    _uint64 (_fun _int32 -> _int32)))
+    ;; 0xFF as i8 is -1, sext to i32 is -1
+    (check-equal? (f #xFF) -1))
+
+  (test-case "JIT sitofp/fptosi round-trip"
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "sitofp_fptosi" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define dbl (LLVM-Double-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "sitofp_fptosi"
+                 (LLVM-Function-Type i32 (list i32) 1 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (define as-fp (LLVM-Build-SITo-FP bld (LLVM-Get-Param fn 0) dbl "fp"))
+    (define back  (LLVM-Build-FPTo-SI bld as-fp i32 "back"))
+    (LLVM-Build-Ret bld back)
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "sitofp_fptosi")
+                    _uint64 (_fun _int32 -> _int32)))
+    (check-equal? (f 42) 42)
+    (check-equal? (f -7) -7))
+
+  ;; ---- Function calls ---------------------------------------------------------
+
+  (test-case "JIT call: caller invokes add(3, 4) = 7"
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "call" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define add-type (LLVM-Function-Type i32 (list i32 i32) 2 0))
+
+    ;; Define add(a, b) = a + b
+    (define add-fn (LLVM-Add-Function mod "add" add-type))
+    (define add-bb (LLVM-Append-Basic-Block-In-Context ctx add-fn "entry"))
+    (define add-bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End add-bld add-bb)
+    (LLVM-Build-Ret add-bld
+      (LLVM-Build-Add add-bld (LLVM-Get-Param add-fn 0) (LLVM-Get-Param add-fn 1) "r"))
+
+    ;; Define caller(a, b) = add(a, b)
+    (define caller-fn (LLVM-Add-Function mod "caller" add-type))
+    (define caller-bb (LLVM-Append-Basic-Block-In-Context ctx caller-fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld caller-bb)
+    (define result (LLVM-Build-Call2 bld add-type add-fn
+                     (list (LLVM-Get-Param caller-fn 0)
+                           (LLVM-Get-Param caller-fn 1))
+                     2 "callresult"))
+    (LLVM-Build-Ret bld result)
+
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "caller")
+                    _uint64 (_fun _int32 _int32 -> _int32)))
+    (check-equal? (f 3 4) 7)
+    (check-equal? (f 100 -50) 50)))

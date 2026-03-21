@@ -496,6 +496,38 @@ without branching.  @racket[cond] must be an @tt{i1} value.}
 @defproc[(LLVM-Build-Unreachable [builder _LLVM-Builder-Ref]) _LLVM-Value-Ref]{
 Build an unreachable instruction, indicating this point should never be reached.}
 
+@subsubsection{Cast / Conversion}
+
+All cast instructions take @racket[builder], @racket[val],
+@racket[dest-type], and @racket[name] parameters and return a
+@racket[_LLVM-Value-Ref].
+
+@defproc[(LLVM-Build-Trunc [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Truncate integer to a narrower type.}
+@defproc[(LLVM-Build-ZExt [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Zero-extend integer to a wider type.}
+@defproc[(LLVM-Build-SExt [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Sign-extend integer to a wider type.}
+@defproc[(LLVM-Build-FPTo-UI [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Floating point to unsigned integer.}
+@defproc[(LLVM-Build-FPTo-SI [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Floating point to signed integer.}
+@defproc[(LLVM-Build-UITo-FP [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Unsigned integer to floating point.}
+@defproc[(LLVM-Build-SITo-FP [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Signed integer to floating point.}
+@defproc[(LLVM-Build-Bit-Cast [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Bitwise reinterpretation (same size, different type).}
+@defproc[(LLVM-Build-Int-To-Ptr [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Integer to pointer.}
+@defproc[(LLVM-Build-Ptr-To-Int [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [dest-type _LLVM-Type-Ref] [name string?]) _LLVM-Value-Ref]{Pointer to integer.}
+
+@subsubsection{Function Calls}
+
+@defproc[(LLVM-Build-Call2
+           [builder _LLVM-Builder-Ref]
+           [fn-type _LLVM-Type-Ref]
+           [fn _LLVM-Value-Ref]
+           [args (listof _LLVM-Value-Ref)]
+           [num-args exact-nonnegative-integer?]
+           [name string?])
+         _LLVM-Value-Ref]{
+Call function @racket[fn] with @racket[args].  @racket[fn-type] is the
+function's type (required for opaque pointer support).  @racket[num-args]
+must equal @racket[(length args)].  Use @racket[""] for @racket[name]
+when the function returns @tt{void}.}
+
 @subsubsection{Terminators}
 
 @defproc[(LLVM-Build-Ret

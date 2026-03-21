@@ -297,4 +297,79 @@
     (define ir-ptr (LLVM-Print-Module-To-String mod))
     (define ir (cast ir-ptr _pointer _string))
     (LLVM-Dispose-Message ir-ptr)
-    (check-true (string-contains? ir "select i1"))))
+    (check-true (string-contains? ir "select i1")))
+
+  (test-case "cast / conversion instructions"
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "cast" ctx))
+    (define i8  (LLVM-Int8-Type-In-Context ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define i64 (LLVM-Int64-Type-In-Context ctx))
+    (define dbl (LLVM-Double-Type-In-Context ctx))
+    (define ptr (LLVM-Pointer-Type-In-Context ctx 0))
+
+    ;; i32 -> various casts
+    (define fn-type (LLVM-Function-Type i32 (list i32) 1 0))
+    (define fn (LLVM-Add-Function mod "cast_test" fn-type))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (define a (LLVM-Get-Param fn 0))
+
+    (define v1 (LLVM-Build-Trunc    bld a i8  "trunc"))
+    (define v2 (LLVM-Build-ZExt     bld a i64 "zext"))
+    (define v3 (LLVM-Build-SExt     bld a i64 "sext"))
+    (define v4 (LLVM-Build-UITo-FP  bld a dbl "uitofp"))
+    (define v5 (LLVM-Build-SITo-FP  bld a dbl "sitofp"))
+    (define v6 (LLVM-Build-FPTo-UI  bld v4 i32 "fptoui"))
+    (define v7 (LLVM-Build-FPTo-SI  bld v5 i32 "fptosi"))
+    (define v8 (LLVM-Build-Int-To-Ptr bld a ptr "inttoptr"))
+    (define v9 (LLVM-Build-Ptr-To-Int bld v8 i32 "ptrtoint"))
+    (define v10 (LLVM-Build-Bit-Cast bld a (LLVM-Float-Type-In-Context ctx) "bitcast"))
+    (LLVM-Build-Ret bld a)
+
+    (define ir-ptr (LLVM-Print-Module-To-String mod))
+    (define ir (cast ir-ptr _pointer _string))
+    (LLVM-Dispose-Message ir-ptr)
+
+    (check-true (string-contains? ir "trunc"))
+    (check-true (string-contains? ir "zext"))
+    (check-true (string-contains? ir "sext"))
+    (check-true (string-contains? ir "uitofp"))
+    (check-true (string-contains? ir "sitofp"))
+    (check-true (string-contains? ir "fptoui"))
+    (check-true (string-contains? ir "fptosi"))
+    (check-true (string-contains? ir "inttoptr"))
+    (check-true (string-contains? ir "ptrtoint"))
+    (check-true (string-contains? ir "bitcast")))
+
+  (test-case "function call instruction"
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "call" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+
+    ;; Define callee: i32 @add(i32, i32)
+    (define add-type (LLVM-Function-Type i32 (list i32 i32) 2 0))
+    (define add-fn (LLVM-Add-Function mod "add" add-type))
+    (define add-bb (LLVM-Append-Basic-Block-In-Context ctx add-fn "entry"))
+    (define add-bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End add-bld add-bb)
+    (LLVM-Build-Ret add-bld
+      (LLVM-Build-Add add-bld (LLVM-Get-Param add-fn 0) (LLVM-Get-Param add-fn 1) "r"))
+
+    ;; Define caller: i32 @caller(i32, i32) { ret add(a, b) }
+    (define caller-fn (LLVM-Add-Function mod "caller" add-type))
+    (define caller-bb (LLVM-Append-Basic-Block-In-Context ctx caller-fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld caller-bb)
+    (define result (LLVM-Build-Call2 bld add-type add-fn
+                     (list (LLVM-Get-Param caller-fn 0)
+                           (LLVM-Get-Param caller-fn 1))
+                     2 "callresult"))
+    (LLVM-Build-Ret bld result)
+
+    (define ir-ptr (LLVM-Print-Module-To-String mod))
+    (define ir (cast ir-ptr _pointer _string))
+    (LLVM-Dispose-Message ir-ptr)
+
+    (check-true (string-contains? ir "call i32 @add"))))

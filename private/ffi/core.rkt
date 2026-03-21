@@ -69,6 +69,17 @@
          LLVM-Add-Incoming
          LLVM-Build-Select
          LLVM-Build-Unreachable
+         LLVM-Build-Trunc
+         LLVM-Build-ZExt
+         LLVM-Build-SExt
+         LLVM-Build-FPTo-UI
+         LLVM-Build-FPTo-SI
+         LLVM-Build-UITo-FP
+         LLVM-Build-SITo-FP
+         LLVM-Build-Bit-Cast
+         LLVM-Build-Int-To-Ptr
+         LLVM-Build-Ptr-To-Int
+         LLVM-Build-Call2
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
@@ -319,6 +330,32 @@
 
 (define-llvm LLVM-Build-Unreachable
   (_fun _LLVM-Builder-Ref -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; Cast / conversion: (builder, value, dest-type, name) -> value
+(define _build-cast
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Type-Ref _string -> _LLVM-Value-Ref))
+
+(define-llvm LLVM-Build-Trunc      _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-ZExt       _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-SExt       _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FPTo-UI    _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-FPTo-SI    _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-UITo-FP    _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-SITo-FP    _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Bit-Cast   _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Int-To-Ptr _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+(define-llvm LLVM-Build-Ptr-To-Int _build-cast #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; Function call
+(define-llvm LLVM-Build-Call2
+  (_fun _LLVM-Builder-Ref
+        _LLVM-Type-Ref                  ; function type
+        _LLVM-Value-Ref                 ; function
+        (_list i _LLVM-Value-Ref)       ; args
+        _uint                           ; num args
+        _string                         ; name
+        -> _LLVM-Value-Ref)
   #:wrap (lambda (proc) (instruction-wrap proc)))
 
 (define-llvm LLVM-Build-Ret
