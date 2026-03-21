@@ -435,6 +435,67 @@ Floating point comparison.  Returns an @tt{i1} value.  Common predicates:
 @racket['LLVMRealORD] (ordered, no NaNs),
 @racket['LLVMRealUNO] (unordered, either is NaN).}
 
+@subsubsection{Control Flow}
+
+@defproc[(LLVM-Build-Br
+           [builder _LLVM-Builder-Ref]
+           [dest _LLVM-Basic-Block-Ref])
+         _LLVM-Value-Ref]{
+Build an unconditional branch to @racket[dest].}
+
+@defproc[(LLVM-Build-Cond-Br
+           [builder _LLVM-Builder-Ref]
+           [cond _LLVM-Value-Ref]
+           [then-bb _LLVM-Basic-Block-Ref]
+           [else-bb _LLVM-Basic-Block-Ref])
+         _LLVM-Value-Ref]{
+Build a conditional branch.  @racket[cond] must be an @tt{i1} value.}
+
+@defproc[(LLVM-Build-Switch
+           [builder _LLVM-Builder-Ref]
+           [val _LLVM-Value-Ref]
+           [else-bb _LLVM-Basic-Block-Ref]
+           [num-cases exact-nonnegative-integer?])
+         _LLVM-Value-Ref]{
+Build a switch instruction with @racket[num-cases] expected cases.
+Add cases with @racket[LLVM-Add-Case].  @racket[else-bb] is the default.}
+
+@defproc[(LLVM-Add-Case
+           [switch _LLVM-Value-Ref]
+           [on-val _LLVM-Value-Ref]
+           [dest _LLVM-Basic-Block-Ref])
+         void?]{
+Add a case to a switch instruction.  @racket[on-val] must be a constant.}
+
+@defproc[(LLVM-Build-Phi
+           [builder _LLVM-Builder-Ref]
+           [type _LLVM-Type-Ref]
+           [name string?])
+         _LLVM-Value-Ref]{
+Build a phi node.  Add incoming edges with @racket[LLVM-Add-Incoming].}
+
+@defproc[(LLVM-Add-Incoming
+           [phi _LLVM-Value-Ref]
+           [values (listof _LLVM-Value-Ref)]
+           [blocks (listof _LLVM-Basic-Block-Ref)]
+           [count exact-nonnegative-integer?])
+         void?]{
+Add incoming values and their corresponding predecessor blocks to a phi node.
+@racket[count] must equal the length of both lists.}
+
+@defproc[(LLVM-Build-Select
+           [builder _LLVM-Builder-Ref]
+           [cond _LLVM-Value-Ref]
+           [then-val _LLVM-Value-Ref]
+           [else-val _LLVM-Value-Ref]
+           [name string?])
+         _LLVM-Value-Ref]{
+Build a select (ternary) instruction.  Equivalent to @tt{cond ? then : else}
+without branching.  @racket[cond] must be an @tt{i1} value.}
+
+@defproc[(LLVM-Build-Unreachable [builder _LLVM-Builder-Ref]) _LLVM-Value-Ref]{
+Build an unreachable instruction, indicating this point should never be reached.}
+
 @subsubsection{Terminators}
 
 @defproc[(LLVM-Build-Ret

@@ -275,4 +275,82 @@
     (define f (jit-f64-cmp "folt"
                 (lambda (bld a b) (LLVM-Build-Ret bld (LLVM-Build-FCmp bld 'LLVMRealOLT a b "r")))))
     (check-true  (f 1.0 2.0))
-    (check-false (f 2.0 1.0))))
+    (check-false (f 2.0 1.0)))
+
+  ;; ---- Control flow -----------------------------------------------------------
+
+  (test-case "JIT select: cond ? a : b"
+    ;; select(cond, a, b) — no branching needed
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "select" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define i1  (LLVM-Int1-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "select"
+                 (LLVM-Function-Type i32 (list i1 i32 i32) 3 0)))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (LLVM-Build-Ret bld
+      (LLVM-Build-Select bld
+                         (LLVM-Get-Param fn 0)
+                         (LLVM-Get-Param fn 1)
+                         (LLVM-Get-Param fn 2)
+                         "sel"))
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define f (cast (LLVM-Get-Function-Address ee "select")
+                    _uint64 (_fun _bool _int32 _int32 -> _int32)))
+    (check-equal? (f #t 10 20) 10)
+    (check-equal? (f #f 10 20) 20))
+
+  (test-case "JIT if-then-else via condbr + phi"
+    ;; max(a, b) using condbr + phi
+    (Initialize-Native-Target!)
+    (LLVM-Link-In-MCJIT)
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "max" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define fn (LLVM-Add-Function mod "max"
+                 (LLVM-Function-Type i32 (list i32 i32) 2 0)))
+    (define entry-bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define then-bb  (LLVM-Append-Basic-Block-In-Context ctx fn "then"))
+    (define else-bb  (LLVM-Append-Basic-Block-In-Context ctx fn "else"))
+    (define merge-bb (LLVM-Append-Basic-Block-In-Context ctx fn "merge"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (define a (LLVM-Get-Param fn 0))
+    (define b (LLVM-Get-Param fn 1))
+
+    ;; entry: if a > b then goto then else goto else
+    (LLVM-Position-Builder-At-End bld entry-bb)
+    (define cond (LLVM-Build-ICmp bld 'LLVMIntSGT a b "cond"))
+    (LLVM-Build-Cond-Br bld cond then-bb else-bb)
+
+    ;; then: br merge
+    (LLVM-Position-Builder-At-End bld then-bb)
+    (LLVM-Build-Br bld merge-bb)
+
+    ;; else: br merge
+    (LLVM-Position-Builder-At-End bld else-bb)
+    (LLVM-Build-Br bld merge-bb)
+
+    ;; merge: phi [a, then], [b, else]; ret
+    (LLVM-Position-Builder-At-End bld merge-bb)
+    (define phi (LLVM-Build-Phi bld i32 "result"))
+    (LLVM-Add-Incoming phi (list a b) (list then-bb else-bb) 2)
+    (LLVM-Build-Ret bld phi)
+
+    (LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+    (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
+    (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+    (define ee
+      (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+    (define max-fn (cast (LLVM-Get-Function-Address ee "max")
+                         _uint64 (_fun _int32 _int32 -> _int32)))
+    (check-equal? (max-fn 10 3) 10)
+    (check-equal? (max-fn 3 10) 10)
+    (check-equal? (max-fn 5 5) 5)))

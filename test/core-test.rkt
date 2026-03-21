@@ -230,4 +230,71 @@
     (LLVM-Dispose-Message ir-ptr)
 
     (check-true (string-contains? ir "icmp eq"))
-    (check-true (string-contains? ir "fcmp oeq"))))
+    (check-true (string-contains? ir "fcmp oeq")))
+
+  (test-case "control flow: br, condbr, phi, select, unreachable"
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "cf" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define i1  (LLVM-Int1-Type-In-Context ctx))
+
+    ;; Build a function with conditional branch and phi
+    (define fn-type (LLVM-Function-Type i32 (list i32 i32 i1) 3 0))
+    (define fn (LLVM-Add-Function mod "cf_test" fn-type))
+    (define entry-bb  (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define then-bb   (LLVM-Append-Basic-Block-In-Context ctx fn "then"))
+    (define else-bb   (LLVM-Append-Basic-Block-In-Context ctx fn "else"))
+    (define merge-bb  (LLVM-Append-Basic-Block-In-Context ctx fn "merge"))
+
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+
+    ;; entry: condbr %cond, then, else
+    (LLVM-Position-Builder-At-End bld entry-bb)
+    (LLVM-Build-Cond-Br bld (LLVM-Get-Param fn 2) then-bb else-bb)
+
+    ;; then: br merge
+    (LLVM-Position-Builder-At-End bld then-bb)
+    (LLVM-Build-Br bld merge-bb)
+
+    ;; else: br merge
+    (LLVM-Position-Builder-At-End bld else-bb)
+    (LLVM-Build-Br bld merge-bb)
+
+    ;; merge: phi [%a, then], [%b, else]; ret phi
+    (LLVM-Position-Builder-At-End bld merge-bb)
+    (define phi (LLVM-Build-Phi bld i32 "result"))
+    (LLVM-Add-Incoming phi
+                       (list (LLVM-Get-Param fn 0) (LLVM-Get-Param fn 1))
+                       (list then-bb else-bb)
+                       2)
+    (LLVM-Build-Ret bld phi)
+
+    (define ir-ptr (LLVM-Print-Module-To-String mod))
+    (define ir (cast ir-ptr _pointer _string))
+    (LLVM-Dispose-Message ir-ptr)
+
+    (check-true (string-contains? ir "br i1"))
+    (check-true (string-contains? ir "br label"))
+    (check-true (string-contains? ir "phi i32")))
+
+  (test-case "select instruction"
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "sel" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define i1  (LLVM-Int1-Type-In-Context ctx))
+    (define fn-type (LLVM-Function-Type i32 (list i1 i32 i32) 3 0))
+    (define fn (LLVM-Add-Function mod "sel_test" fn-type))
+    (define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+    (define bld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End bld bb)
+    (LLVM-Build-Ret bld
+      (LLVM-Build-Select bld
+                         (LLVM-Get-Param fn 0)
+                         (LLVM-Get-Param fn 1)
+                         (LLVM-Get-Param fn 2)
+                         "sel"))
+
+    (define ir-ptr (LLVM-Print-Module-To-String mod))
+    (define ir (cast ir-ptr _pointer _string))
+    (LLVM-Dispose-Message ir-ptr)
+    (check-true (string-contains? ir "select i1"))))

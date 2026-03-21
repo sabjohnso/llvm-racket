@@ -61,6 +61,14 @@
          LLVM-Build-Not
          LLVM-Build-ICmp
          LLVM-Build-FCmp
+         LLVM-Build-Br
+         LLVM-Build-Cond-Br
+         LLVM-Build-Switch
+         LLVM-Add-Case
+         LLVM-Build-Phi
+         LLVM-Add-Incoming
+         LLVM-Build-Select
+         LLVM-Build-Unreachable
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
@@ -276,6 +284,41 @@
 
 (define-llvm LLVM-Build-FCmp
   (_fun _LLVM-Builder-Ref _LLVM-Real-Predicate _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; Control flow
+(define-llvm LLVM-Build-Br
+  (_fun _LLVM-Builder-Ref _LLVM-Basic-Block-Ref -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Cond-Br
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Basic-Block-Ref _LLVM-Basic-Block-Ref -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Switch
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Basic-Block-Ref _uint -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Add-Case
+  (_fun _LLVM-Value-Ref _LLVM-Value-Ref _LLVM-Basic-Block-Ref -> _void))
+
+(define-llvm LLVM-Build-Phi
+  (_fun _LLVM-Builder-Ref _LLVM-Type-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Add-Incoming
+  (_fun _LLVM-Value-Ref
+        (_list i _LLVM-Value-Ref)
+        (_list i _LLVM-Basic-Block-Ref)
+        _uint
+        -> _void))
+
+(define-llvm LLVM-Build-Select
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Unreachable
+  (_fun _LLVM-Builder-Ref -> _LLVM-Value-Ref)
   #:wrap (lambda (proc) (instruction-wrap proc)))
 
 (define-llvm LLVM-Build-Ret
