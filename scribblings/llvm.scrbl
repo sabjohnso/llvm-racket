@@ -268,6 +268,20 @@ Build a return instruction.}
 Dispose of an IR builder.}
 
 @; ---------------------------------------------------------------------------
+@subsection{Core --- Memory Buffers}
+
+@defproc[(LLVM-Get-Buffer-Start [buf _LLVM-Memory-Buffer-Ref]) cpointer?]{
+Return a pointer to the start of the buffer's data. Cast to @racket[_string]
+to read text output (e.g., assembly).}
+
+@defproc[(LLVM-Get-Buffer-Size [buf _LLVM-Memory-Buffer-Ref])
+         exact-nonnegative-integer?]{
+Return the size of the buffer in bytes.}
+
+@defproc[(LLVM-Dispose-Memory-Buffer [buf _LLVM-Memory-Buffer-Ref]) void?]{
+Free a memory buffer.}
+
+@; ---------------------------------------------------------------------------
 @subsection{Analysis --- Module Verification}
 
 @defproc[(LLVM-Verify-Module
@@ -328,6 +342,35 @@ Create a target machine. Pass @racket["generic"] for @racket[cpu] and
 
 @defproc[(LLVM-Dispose-Target-Machine [tm _LLVM-Target-Machine-Ref]) void?]{
 Dispose of a target machine.}
+
+@defproc[(LLVM-Target-Machine-Emit-To-Memory-Buffer
+           [tm _LLVM-Target-Machine-Ref]
+           [mod _LLVM-Module-Ref]
+           [file-type _LLVM-Code-Gen-File-Type])
+         (values _LLVM-Bool _LLVM-Memory-Buffer-Ref (or/c cpointer? #f))]{
+Emit @racket[mod] as assembly or object code into a memory buffer.
+Pass @racket['LLVMAssemblyFile] for assembly text or
+@racket['LLVMObjectFile] for machine code. Returns three values:
+@itemlist[
+  @item{A @racket[_LLVM-Bool] --- @racket[0] on success.}
+  @item{The @racket[_LLVM-Memory-Buffer-Ref] containing the output (valid only on success).}
+  @item{An error message pointer on failure (free with @racket[LLVM-Dispose-Message]).}
+]
+Read the result with @racket[LLVM-Get-Buffer-Start] and
+@racket[LLVM-Get-Buffer-Size]. Free with @racket[LLVM-Dispose-Memory-Buffer].}
+
+@defproc[(LLVM-Target-Machine-Emit-To-File
+           [tm _LLVM-Target-Machine-Ref]
+           [mod _LLVM-Module-Ref]
+           [filename string?]
+           [file-type _LLVM-Code-Gen-File-Type])
+         (values _LLVM-Bool (or/c cpointer? #f))]{
+Emit @racket[mod] as assembly or object code to @racket[filename].
+Returns two values:
+@itemlist[
+  @item{A @racket[_LLVM-Bool] --- @racket[0] on success.}
+  @item{An error message pointer on failure (free with @racket[LLVM-Dispose-Message]).}
+]}
 
 @; ---------------------------------------------------------------------------
 @subsection{Execution Engine (MCJIT)}

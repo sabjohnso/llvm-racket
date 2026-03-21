@@ -2,9 +2,11 @@
 
 (require ffi/unsafe
          ffi/unsafe/define
+         ffi/unsafe/alloc
          "lib.rkt"
          "types.rkt"
-         "enums.rkt")
+         "enums.rkt"
+         "core.rkt")
 
 (provide LLVM-Link-In-MCJIT
          LLVM-Create-MCJIT-Compiler-For-Module
@@ -34,7 +36,14 @@
 (define-llvm LLVM-Initialize-MCJIT-Compiler-Options
   (_fun _LLVM-MCJIT-Compiler-Options-pointer _size -> _void))
 
+;; Execution engine
+(define-llvm LLVM-Dispose-Execution-Engine
+  (_fun _LLVM-Execution-Engine-Ref -> _void)
+  #:wrap (deallocator))
+
 ;; Create MCJIT execution engine. Module ownership transfers to engine.
+;; On success, the module is anchored to the engine so the lifetime
+;; chain engine → module → context is preserved.
 (define-llvm LLVM-Create-MCJIT-Compiler-For-Module
   (_fun (ee : (_ptr o _LLVM-Execution-Engine-Ref))
         _LLVM-Module-Ref
@@ -42,28 +51,38 @@
         _size
         (err : (_ptr o _pointer))
         -> (result : _LLVM-Bool)
-        -> (values result ee err)))
+        -> (values result ee err))
+  #:wrap (let ()
+           (lambda (proc)
+             (lambda (mod opts size)
+               (define-values (result ee err) (proc mod opts size))
+               (when (zero? result)
+                 ;; Engine now owns the module — cancel the module's
+                 ;; GC finalizer and anchor it to the engine instead.
+                 (cancel-module-ownership! mod)
+                 (prevent-gc! ee mod))
+               (values result ee err)))))
 
 ;; Get address of a JIT'd function. Returns 0 on failure.
 (define-llvm LLVM-Get-Function-Address
   (_fun _LLVM-Execution-Engine-Ref _string -> _uint64))
 
-(define-llvm LLVM-Dispose-Execution-Engine
-  (_fun _LLVM-Execution-Engine-Ref -> _void))
-
 ;; GenericValue API for calling JIT'd functions via LLVMRunFunction.
+(define-llvm LLVM-Dispose-Generic-Value
+  (_fun _LLVM-Generic-Value-Ref -> _void)
+  #:wrap (deallocator))
+
 (define-llvm LLVM-Create-Generic-Value-Of-Int
-  (_fun _LLVM-Type-Ref _ullong _LLVM-Bool -> _LLVM-Generic-Value-Ref))
+  (_fun _LLVM-Type-Ref _ullong _LLVM-Bool -> _LLVM-Generic-Value-Ref)
+  #:wrap (allocator LLVM-Dispose-Generic-Value))
 
 (define-llvm LLVM-Run-Function
   (_fun _LLVM-Execution-Engine-Ref
         _LLVM-Value-Ref
         _uint
         (_list i _LLVM-Generic-Value-Ref)
-        -> _LLVM-Generic-Value-Ref))
+        -> _LLVM-Generic-Value-Ref)
+  #:wrap (allocator LLVM-Dispose-Generic-Value))
 
 (define-llvm LLVM-Generic-Value-To-Int
   (_fun _LLVM-Generic-Value-Ref _LLVM-Bool -> _ullong))
-
-(define-llvm LLVM-Dispose-Generic-Value
-  (_fun _LLVM-Generic-Value-Ref -> _void))

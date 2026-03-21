@@ -2,12 +2,15 @@
 
 (require ffi/unsafe
          ffi/unsafe/define
+         ffi/unsafe/alloc
          (for-syntax racket/base
                      racket/string))
 
 (provide llvm-lib
          define-llvm
-         kebab->pascal)
+         kebab->pascal
+         prevent-gc!
+         allocator/prevent-gc)
 
 ;; Try to load libLLVM from a specific directory with version fallback.
 (define (try-load-from dir)
@@ -53,4 +56,31 @@
 
 (define-ffi-definer define-llvm llvm-lib
   #:make-c-id kebab->pascal)
+
+;; Prevent-GC: weak-key hash table that keeps parent resources alive
+;; as long as the dependent resource is reachable.
+;;
+;; Example: a module depends on its context. Anchoring the context to
+;; the module ensures the GC won't finalize the context while the
+;; module is still in use.
+(define prevent-gc-table (make-weak-hasheq))
+
+(define (prevent-gc! dependent parent)
+  (hash-update! prevent-gc-table dependent
+                (lambda (existing) (cons parent existing))
+                '()))
+
+;; Compose (allocator dealloc) with prevent-gc! anchoring.
+;; parent-arg-indices are 0-based positions in the Racket-side argument
+;; list; each referenced argument is anchored to the return value.
+(define (allocator/prevent-gc dealloc . parent-arg-indices)
+  (define wrap (allocator dealloc))
+  (lambda (proc)
+    (define wrapped (wrap proc))
+    (lambda args
+      (define result (apply wrapped args))
+      (when result
+        (for ([idx (in-list parent-arg-indices)])
+          (prevent-gc! result (list-ref args idx))))
+      result)))
 
