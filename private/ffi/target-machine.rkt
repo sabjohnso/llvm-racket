@@ -46,10 +46,6 @@
         -> _LLVM-Target-Machine-Ref)
   #:wrap (allocator LLVM-Dispose-Target-Machine))
 
-;; Register out-param buffer with the allocator mechanism.
-(define register-memory-buffer!
-  (make-register-allocation LLVM-Dispose-Memory-Buffer))
-
 ;; Emit module as assembly or object code to a memory buffer.
 ;; Raises exn:fail on error.  Returns the memory buffer on success.
 (define-llvm LLVM-Target-Machine-Emit-To-Memory-Buffer

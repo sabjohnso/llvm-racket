@@ -931,6 +931,77 @@ These add individual optimization passes to a legacy pass manager.
 @defproc[(LLVM-Add-Scalar-Repl-Aggregates-Pass-SSA [pm _LLVM-Pass-Manager-Ref]) void?]{Add scalar replacement of aggregates (SROA).}
 
 @; ---------------------------------------------------------------------------
+@subsection{Bitcode I/O}
+
+@subsubsection{BitWriter}
+
+@defproc[(LLVM-Write-Bitcode-To-File [mod _LLVM-Module-Ref] [path string?]) void?]{
+Write @racket[mod] as bitcode to @racket[path].  Raises @racket[exn:fail] on error.}
+
+@defproc[(LLVM-Write-Bitcode-To-Memory-Buffer [mod _LLVM-Module-Ref]) _LLVM-Memory-Buffer-Ref]{
+Write @racket[mod] as bitcode to a memory buffer.  GC-managed.}
+
+@subsubsection{BitReader}
+
+@defproc[(LLVM-Parse-Bitcode-In-Context2
+           [ctx _LLVM-Context-Ref]
+           [buf _LLVM-Memory-Buffer-Ref])
+         _LLVM-Module-Ref]{
+Parse a bitcode memory buffer into a module in @racket[ctx].
+Raises @racket[exn:fail] on error.  The returned module is GC-managed
+and anchored to @racket[ctx].}
+
+@defproc[(LLVM-Parse-Bitcode-File [ctx _LLVM-Context-Ref] [path string?])
+         _LLVM-Module-Ref]{
+Convenience: read a bitcode file into a module.  Equivalent to loading
+the file into a memory buffer and calling @racket[LLVM-Parse-Bitcode-In-Context2].}
+
+@subsubsection{IRReader}
+
+@defproc[(LLVM-Parse-IR-In-Context
+           [ctx _LLVM-Context-Ref]
+           [buf _LLVM-Memory-Buffer-Ref])
+         _LLVM-Module-Ref]{
+Parse LLVM IR text (a @tt{.ll} file) from a memory buffer into a module.
+Raises @racket[exn:fail] with the parse error on failure.  The returned
+module is GC-managed and anchored to @racket[ctx].
+Note: this consumes @racket[buf] --- do not use it after this call.}
+
+@subsubsection{Memory Buffer Construction}
+
+@defproc[(LLVM-Create-Memory-Buffer-With-Contents-Of-File [path string?])
+         _LLVM-Memory-Buffer-Ref]{
+Read a file into a memory buffer.  Raises @racket[exn:fail] on error.  GC-managed.}
+
+@defproc[(LLVM-Create-Memory-Buffer-With-Memory-Range
+           [data string?]
+           [length exact-nonnegative-integer?]
+           [name string?]
+           [requires-null-terminator _LLVM-Bool])
+         _LLVM-Memory-Buffer-Ref]{
+Create a memory buffer from in-memory data.  @racket[name] is used for
+diagnostics.  GC-managed.  Note: LLVM references @racket[data] without
+copying --- ensure the string remains valid while the buffer is in use.}
+
+@subsubsection{Module Utilities}
+
+@defproc[(LLVM-Clone-Module [mod _LLVM-Module-Ref]) _LLVM-Module-Ref]{
+Create a deep copy of @racket[mod].  The clone is GC-managed and anchored
+to the original module (transitively to its context).}
+
+@defproc[(LLVM-Set-Target [mod _LLVM-Module-Ref] [triple string?]) void?]{
+Set the target triple for @racket[mod].}
+
+@defproc[(LLVM-Get-Target [mod _LLVM-Module-Ref]) string?]{
+Get the target triple of @racket[mod].}
+
+@defproc[(LLVM-Set-Data-Layout [mod _LLVM-Module-Ref] [layout string?]) void?]{
+Set the data layout string for @racket[mod].}
+
+@defproc[(LLVM-Get-Data-Layout [mod _LLVM-Module-Ref]) string?]{
+Get the data layout string of @racket[mod].}
+
+@; ---------------------------------------------------------------------------
 @section{Resource Management}
 
 All LLVM resources allocated through this library are tracked by the

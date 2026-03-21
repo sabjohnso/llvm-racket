@@ -13,7 +13,8 @@
          "private/ffi/target.rkt"
          "private/ffi/target-machine.rkt"
          "private/ffi/execution-engine.rkt"
-         "private/ffi/passes.rkt")
+         "private/ffi/passes.rkt"
+         "private/ffi/bitcode.rkt")
 
 (provide (all-from-out "private/ffi/lib.rkt")
          (all-from-out "private/ffi/types.rkt")
@@ -23,4 +24,5 @@
          (all-from-out "private/ffi/target.rkt")
          (all-from-out "private/ffi/target-machine.rkt")
          (all-from-out "private/ffi/execution-engine.rkt")
-         (all-from-out "private/ffi/passes.rkt"))
+         (all-from-out "private/ffi/passes.rkt")
+         (all-from-out "private/ffi/bitcode.rkt"))

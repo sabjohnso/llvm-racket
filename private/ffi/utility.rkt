@@ -9,7 +9,8 @@
          LLVM-Print-Module-To-String
          LLVM-Get-Buffer-Start
          LLVM-Get-Buffer-Size
-         LLVM-Dispose-Memory-Buffer)
+         LLVM-Dispose-Memory-Buffer
+         register-memory-buffer!)
 
 ;; ---- Messages --------------------------------------------------------------
 
@@ -26,6 +27,10 @@
 (define-llvm LLVM-Dispose-Memory-Buffer
   (_fun _LLVM-Memory-Buffer-Ref -> _void)
   #:wrap (deallocator))
+
+;; Register out-param buffers with the allocator mechanism.
+(define register-memory-buffer!
+  (make-register-allocation LLVM-Dispose-Memory-Buffer))
 
 (define-llvm LLVM-Get-Buffer-Start
   (_fun _LLVM-Memory-Buffer-Ref -> _pointer))
