@@ -859,6 +859,78 @@ Unbox a generic value as an integer.}
 Dispose of a generic value.}
 
 @; ---------------------------------------------------------------------------
+@subsection{Optimization Passes}
+
+@subsubsection{New Pass Manager (LLVM 13+)}
+
+The new pass manager uses a string-based pipeline description
+(e.g., @racket["default<O2>"], @racket["mem2reg"], @racket["instcombine,gvn"]).
+This is the preferred API.
+
+@defproc[(LLVM-Create-Pass-Builder-Options) _LLVM-Pass-Builder-Options-Ref]{
+Create pass builder options.  GC-managed.}
+
+@defproc[(LLVM-Dispose-Pass-Builder-Options [opts _LLVM-Pass-Builder-Options-Ref]) void?]{
+Dispose of pass builder options.}
+
+@defproc[(LLVM-Run-Passes
+           [mod _LLVM-Module-Ref]
+           [passes string?]
+           [tm _LLVM-Target-Machine-Ref]
+           [opts _LLVM-Pass-Builder-Options-Ref])
+         void?]{
+Run the named optimization passes on @racket[mod].  Raises @racket[exn:fail]
+if the pipeline description is invalid or a pass fails.
+
+Common pipelines: @racket["default<O0>"], @racket["default<O1>"],
+@racket["default<O2>"], @racket["default<O3>"].
+Individual passes: @racket["mem2reg"], @racket["instcombine"],
+@racket["gvn"], @racket["simplifycfg"].
+Combine with commas: @racket["mem2reg,instcombine,gvn"].}
+
+@subsubsection{Legacy Pass Manager}
+
+@defproc[(LLVM-Create-Pass-Manager) _LLVM-Pass-Manager-Ref]{
+Create a module-level pass manager.  GC-managed.}
+
+@defproc[(LLVM-Create-Function-Pass-Manager-For-Module
+           [mod _LLVM-Module-Ref])
+         _LLVM-Pass-Manager-Ref]{
+Create a function-level pass manager for @racket[mod].  GC-managed.}
+
+@defproc[(LLVM-Dispose-Pass-Manager [pm _LLVM-Pass-Manager-Ref]) void?]{
+Dispose of a pass manager.}
+
+@defproc[(LLVM-Run-Pass-Manager
+           [pm _LLVM-Pass-Manager-Ref]
+           [mod _LLVM-Module-Ref])
+         _LLVM-Bool]{
+Run all module passes.  Returns non-zero if any pass modified the module.}
+
+@defproc[(LLVM-Initialize-Function-Pass-Manager [fpm _LLVM-Pass-Manager-Ref]) _LLVM-Bool]{
+Initialize function pass manager before running passes.}
+
+@defproc[(LLVM-Run-Function-Pass-Manager
+           [fpm _LLVM-Pass-Manager-Ref]
+           [fn _LLVM-Value-Ref])
+         _LLVM-Bool]{
+Run function passes on @racket[fn].  Returns non-zero if the function was modified.}
+
+@defproc[(LLVM-Finalize-Function-Pass-Manager [fpm _LLVM-Pass-Manager-Ref]) _LLVM-Bool]{
+Finalize function pass manager after running passes.}
+
+@subsubsection{Legacy Transform Passes}
+
+These add individual optimization passes to a legacy pass manager.
+
+@defproc[(LLVM-Add-Instruction-Combining-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add instruction combining.}
+@defproc[(LLVM-Add-Reassociate-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add expression reassociation.}
+@defproc[(LLVM-Add-GVN-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add global value numbering.}
+@defproc[(LLVM-Add-CFG-Simplification-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add control flow graph simplification.}
+@defproc[(LLVM-Add-Promote-Memory-To-Register-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add mem2reg (promote allocas to SSA registers).}
+@defproc[(LLVM-Add-Scalar-Repl-Aggregates-Pass-SSA [pm _LLVM-Pass-Manager-Ref]) void?]{Add scalar replacement of aggregates (SROA).}
+
+@; ---------------------------------------------------------------------------
 @section{Resource Management}
 
 All LLVM resources allocated through this library are tracked by the

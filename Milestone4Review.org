@@ -1,0 +1,77 @@
+#+TITLE: LLVM Racket — Milestone 4 Review
+#+DATE: [2026-03-21]
+#+STARTUP: overview
+
+* Summary
+
+Milestone 4 adds both the new pass manager (string-based pipeline) and
+the legacy pass manager with individual transform passes.  FFI signatures
+are correct and error handling uses the appropriate ~LLVMErrorRef~ API.
+
+| Category          | Status          |
+|-------------------+-----------------|
+| Correctness       | Excellent       |
+| GC/Lifecycle      | Complete        |
+| Tests             | Comprehensive   |
+| Documentation     | Complete        |
+| Consistency       | Strong          |
+
+* Correctness
+
+All FFI signatures match the LLVM C API.
+
+- ~LLVMRunPasses~ parameter order ~(Module, passes, TM, Options)~ ✓
+- Returns ~LLVMErrorRef~ (null on success) — correctly handled
+- ~check-llvm-error-ref~ is distinct from ~check-llvm-error~ because
+  ~LLVMErrorRef~ uses ~LLVMGetErrorMessage~ / ~LLVMDisposeErrorMessage~
+  while the legacy bool+char** pattern uses ~LLVMDisposeMessage~.
+  This is justified — different C API error mechanisms.
+
+* GC / Lifecycle
+
+** What's correct
+
+- ~PassBuilderOptions~: allocator/deallocator pair ✓
+- ~PassManager~ (module-level): allocator/deallocator pair ✓
+
+** DONE [#A] Function pass manager not anchored to module
+CLOSED: [2026-03-21]
+
+Fixed: now uses ~(allocator/prevent-gc LLVM-Dispose-Pass-Manager 0)~.
+
+* Tests
+
+82 tests total, all passing.  6 new test cases:
+
+| Test                              | What it verifies                    |
+|-----------------------------------+-------------------------------------|
+| New PM: mem2reg                   | Alloca eliminated from IR           |
+| New PM: default<O2>              | Standard pipeline runs without error |
+| New PM: invalid pipeline          | exn:fail raised for bad pass name   |
+| Legacy: module passes             | 4 passes added and run              |
+| Legacy: function passes + mem2reg | Alloca eliminated, FPM lifecycle    |
+| JIT after optimization            | Optimized function computes correctly |
+
+** DONE [#B] LLVM-Add-Scalar-Repl-Aggregates-Pass-SSA untested
+CLOSED: [2026-03-21]
+
+Fixed: added to the legacy module passes test case.
+
+* Documentation
+
+All bindings documented in the Optimization Passes section:
+
+- New pass manager: 3 bindings with pipeline string examples ✓
+- Legacy pass manager: 7 bindings ✓
+- Legacy transform passes: all 6 ✓
+- Pipeline examples: ~default<O0>~ through ~default<O3>~, individual
+  passes, comma-separated composition ✓
+
+* Issues summary
+
+All issues resolved.
+
+| Priority | Issue                                      | Status |
+|----------+--------------------------------------------+--------|
+| [#A]     | Function pass manager not anchored to module | Fixed  |
+| [#B]     | Scalar-Repl-Aggregates-Pass-SSA untested   | Fixed  |

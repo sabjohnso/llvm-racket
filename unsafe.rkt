@@ -12,7 +12,8 @@
          "private/ffi/analysis.rkt"
          "private/ffi/target.rkt"
          "private/ffi/target-machine.rkt"
-         "private/ffi/execution-engine.rkt")
+         "private/ffi/execution-engine.rkt"
+         "private/ffi/passes.rkt")
 
 (provide (all-from-out "private/ffi/lib.rkt")
          (all-from-out "private/ffi/types.rkt")
@@ -21,4 +22,5 @@
          (all-from-out "private/ffi/analysis.rkt")
          (all-from-out "private/ffi/target.rkt")
          (all-from-out "private/ffi/target-machine.rkt")
-         (all-from-out "private/ffi/execution-engine.rkt"))
+         (all-from-out "private/ffi/execution-engine.rkt")
+         (all-from-out "private/ffi/passes.rkt"))

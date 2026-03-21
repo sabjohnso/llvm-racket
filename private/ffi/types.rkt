@@ -15,6 +15,7 @@
          _LLVM-MCJIT-Memory-Manager-Ref _LLVM-MCJIT-Memory-Manager-Ref/null
          _LLVM-Target-Ref _LLVM-Target-Ref/null
          _LLVM-Target-Machine-Ref _LLVM-Target-Machine-Ref/null
+         _LLVM-Pass-Builder-Options-Ref _LLVM-Pass-Builder-Options-Ref/null
          _LLVM-Bool)
 
 (define-cpointer-type _LLVM-Context-Ref)
@@ -30,5 +31,7 @@
 (define-cpointer-type _LLVM-MCJIT-Memory-Manager-Ref)
 (define-cpointer-type _LLVM-Target-Ref)
 (define-cpointer-type _LLVM-Target-Machine-Ref)
+
+(define-cpointer-type _LLVM-Pass-Builder-Options-Ref)
 
 (define _LLVM-Bool _int)
