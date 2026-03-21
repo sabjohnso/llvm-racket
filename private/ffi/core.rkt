@@ -3,7 +3,8 @@
 (require ffi/unsafe
          ffi/unsafe/alloc
          "lib.rkt"
-         "types.rkt")
+         "types.rkt"
+         "enums.rkt")
 
 (provide LLVM-Context-Create
          LLVM-Context-Dispose
@@ -58,6 +59,8 @@
          LLVM-Build-LShr
          LLVM-Build-AShr
          LLVM-Build-Not
+         LLVM-Build-ICmp
+         LLVM-Build-FCmp
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
@@ -265,6 +268,15 @@
 (define-llvm LLVM-Build-LShr   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
 (define-llvm LLVM-Build-AShr   _build-binop #:wrap (lambda (proc) (instruction-wrap proc)))
 (define-llvm LLVM-Build-Not    _build-unop  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; Comparisons: (builder, predicate, lhs, rhs, name) -> i1 value
+(define-llvm LLVM-Build-ICmp
+  (_fun _LLVM-Builder-Ref _LLVM-Int-Predicate _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-FCmp
+  (_fun _LLVM-Builder-Ref _LLVM-Real-Predicate _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
 
 (define-llvm LLVM-Build-Ret
   (_fun _LLVM-Builder-Ref _LLVM-Value-Ref -> _LLVM-Value-Ref)

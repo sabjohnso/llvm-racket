@@ -161,6 +161,44 @@ Output file type for code generation.
   @item{@racket['LLVMObjectFile] (1)}
 ]}
 
+@defthing[_LLVM-Int-Predicate ctype?]{
+Integer comparison predicate for @racket[LLVM-Build-ICmp].
+
+@itemlist[
+  @item{@racket['LLVMIntEQ] (32) --- equal}
+  @item{@racket['LLVMIntNE] (33) --- not equal}
+  @item{@racket['LLVMIntUGT] (34) --- unsigned greater than}
+  @item{@racket['LLVMIntUGE] (35) --- unsigned greater or equal}
+  @item{@racket['LLVMIntULT] (36) --- unsigned less than}
+  @item{@racket['LLVMIntULE] (37) --- unsigned less or equal}
+  @item{@racket['LLVMIntSGT] (38) --- signed greater than}
+  @item{@racket['LLVMIntSGE] (39) --- signed greater or equal}
+  @item{@racket['LLVMIntSLT] (40) --- signed less than}
+  @item{@racket['LLVMIntSLE] (41) --- signed less or equal}
+]}
+
+@defthing[_LLVM-Real-Predicate ctype?]{
+Floating point comparison predicate for @racket[LLVM-Build-FCmp].
+
+@itemlist[
+  @item{@racket['LLVMRealPredicateFalse] (0) --- always false}
+  @item{@racket['LLVMRealOEQ] (1) --- ordered and equal}
+  @item{@racket['LLVMRealOGT] (2) --- ordered and greater than}
+  @item{@racket['LLVMRealOGE] (3) --- ordered and greater or equal}
+  @item{@racket['LLVMRealOLT] (4) --- ordered and less than}
+  @item{@racket['LLVMRealOLE] (5) --- ordered and less or equal}
+  @item{@racket['LLVMRealONE] (6) --- ordered and not equal}
+  @item{@racket['LLVMRealORD] (7) --- ordered (no NaNs)}
+  @item{@racket['LLVMRealUNO] (8) --- unordered (either is NaN)}
+  @item{@racket['LLVMRealUEQ] (9) --- unordered or equal}
+  @item{@racket['LLVMRealUGT] (10) --- unordered or greater than}
+  @item{@racket['LLVMRealUGE] (11) --- unordered or greater or equal}
+  @item{@racket['LLVMRealULT] (12) --- unordered or less than}
+  @item{@racket['LLVMRealULE] (13) --- unordered or less or equal}
+  @item{@racket['LLVMRealUNE] (14) --- unordered or not equal}
+  @item{@racket['LLVMRealPredicateTrue] (15) --- always true}
+]}
+
 @; ---------------------------------------------------------------------------
 @subsection{Core --- Contexts}
 
@@ -368,6 +406,34 @@ All binary arithmetic instructions take @racket[builder], @racket[lhs],
 @defproc[(LLVM-Build-LShr [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Logical shift right (zero-fill).}
 @defproc[(LLVM-Build-AShr [builder _LLVM-Builder-Ref] [lhs _LLVM-Value-Ref] [rhs _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Arithmetic shift right (sign-extending).}
 @defproc[(LLVM-Build-Not [builder _LLVM-Builder-Ref] [val _LLVM-Value-Ref] [name string?]) _LLVM-Value-Ref]{Bitwise NOT (ones' complement).}
+
+@subsubsection{Comparisons}
+
+@defproc[(LLVM-Build-ICmp
+           [builder _LLVM-Builder-Ref]
+           [predicate _LLVM-Int-Predicate]
+           [lhs _LLVM-Value-Ref]
+           [rhs _LLVM-Value-Ref]
+           [name string?])
+         _LLVM-Value-Ref]{
+Integer comparison.  Returns an @tt{i1} value.  Predicates:
+@racket['LLVMIntEQ], @racket['LLVMIntNE],
+@racket['LLVMIntUGT], @racket['LLVMIntUGE], @racket['LLVMIntULT], @racket['LLVMIntULE] (unsigned),
+@racket['LLVMIntSGT], @racket['LLVMIntSGE], @racket['LLVMIntSLT], @racket['LLVMIntSLE] (signed).}
+
+@defproc[(LLVM-Build-FCmp
+           [builder _LLVM-Builder-Ref]
+           [predicate _LLVM-Real-Predicate]
+           [lhs _LLVM-Value-Ref]
+           [rhs _LLVM-Value-Ref]
+           [name string?])
+         _LLVM-Value-Ref]{
+Floating point comparison.  Returns an @tt{i1} value.  Common predicates:
+@racket['LLVMRealOEQ] (ordered equal),
+@racket['LLVMRealOGT], @racket['LLVMRealOGE], @racket['LLVMRealOLT], @racket['LLVMRealOLE] (ordered),
+@racket['LLVMRealONE] (ordered not equal),
+@racket['LLVMRealORD] (ordered, no NaNs),
+@racket['LLVMRealUNO] (unordered, either is NaN).}
 
 @subsubsection{Terminators}
 

@@ -6,7 +6,9 @@
          _LLVM-Code-Gen-Opt-Level
          _LLVM-Code-Model
          _LLVM-Reloc-Mode
-         _LLVM-Code-Gen-File-Type)
+         _LLVM-Code-Gen-File-Type
+         _LLVM-Int-Predicate
+         _LLVM-Real-Predicate)
 
 (define _LLVM-Verifier-Failure-Action
   (_enum '(LLVMAbortProcessAction = 0
@@ -40,3 +42,33 @@
 (define _LLVM-Code-Gen-File-Type
   (_enum '(LLVMAssemblyFile = 0
            LLVMObjectFile)))
+
+(define _LLVM-Int-Predicate
+  (_enum '(LLVMIntEQ = 32
+           LLVMIntNE
+           LLVMIntUGT
+           LLVMIntUGE
+           LLVMIntULT
+           LLVMIntULE
+           LLVMIntSGT
+           LLVMIntSGE
+           LLVMIntSLT
+           LLVMIntSLE)))
+
+(define _LLVM-Real-Predicate
+  (_enum '(LLVMRealPredicateFalse = 0
+           LLVMRealOEQ
+           LLVMRealOGT
+           LLVMRealOGE
+           LLVMRealOLT
+           LLVMRealOLE
+           LLVMRealONE
+           LLVMRealORD
+           LLVMRealUNO
+           LLVMRealUEQ
+           LLVMRealUGT
+           LLVMRealUGE
+           LLVMRealULT
+           LLVMRealULE
+           LLVMRealUNE
+           LLVMRealPredicateTrue)))

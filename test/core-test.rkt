@@ -196,4 +196,38 @@
     (check-true (string-contains? ir "xor"))
     (check-true (string-contains? ir "shl"))
     (check-true (string-contains? ir "lshr"))
-    (check-true (string-contains? ir "ashr"))))
+    (check-true (string-contains? ir "ashr")))
+
+  (test-case "comparison instructions"
+    (define ctx (LLVM-Context-Create))
+    (define mod (LLVM-Module-Create-With-Name-In-Context "cmp" ctx))
+    (define i32 (LLVM-Int32-Type-In-Context ctx))
+    (define i1  (LLVM-Int1-Type-In-Context ctx))
+    (define dbl (LLVM-Double-Type-In-Context ctx))
+
+    ;; Integer comparison
+    (define ifn-type (LLVM-Function-Type i1 (list i32 i32) 2 0))
+    (define ifn (LLVM-Add-Function mod "icmp_test" ifn-type))
+    (define ibb (LLVM-Append-Basic-Block-In-Context ctx ifn "entry"))
+    (define ibld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End ibld ibb)
+    (define ia (LLVM-Get-Param ifn 0))
+    (define ib (LLVM-Get-Param ifn 1))
+    (LLVM-Build-Ret ibld (LLVM-Build-ICmp ibld 'LLVMIntEQ ia ib "eq"))
+
+    ;; Float comparison
+    (define ffn-type (LLVM-Function-Type i1 (list dbl dbl) 2 0))
+    (define ffn (LLVM-Add-Function mod "fcmp_test" ffn-type))
+    (define fbb (LLVM-Append-Basic-Block-In-Context ctx ffn "entry"))
+    (define fbld (LLVM-Create-Builder-In-Context ctx))
+    (LLVM-Position-Builder-At-End fbld fbb)
+    (define fa (LLVM-Get-Param ffn 0))
+    (define fb (LLVM-Get-Param ffn 1))
+    (LLVM-Build-Ret fbld (LLVM-Build-FCmp fbld 'LLVMRealOEQ fa fb "oeq"))
+
+    (define ir-ptr (LLVM-Print-Module-To-String mod))
+    (define ir (cast ir-ptr _pointer _string))
+    (LLVM-Dispose-Message ir-ptr)
+
+    (check-true (string-contains? ir "icmp eq"))
+    (check-true (string-contains? ir "fcmp oeq"))))
