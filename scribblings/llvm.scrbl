@@ -196,8 +196,93 @@ or error out-parameters).}
 @; ---------------------------------------------------------------------------
 @subsection{Core --- Types}
 
+All type constructors return handles into the context.  The context is
+kept alive as long as any type ref derived from it is reachable.
+
+@subsubsection{Integer Types}
+
+@defproc[(LLVM-Int1-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the @tt{i1} (boolean) type.}
+
+@defproc[(LLVM-Int8-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the @tt{i8} type.}
+
+@defproc[(LLVM-Int16-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the @tt{i16} type.}
+
 @defproc[(LLVM-Int32-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
-Return the @tt{i32} type in the given context.}
+Return the @tt{i32} type.}
+
+@defproc[(LLVM-Int64-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the @tt{i64} type.}
+
+@defproc[(LLVM-Int-Type-In-Context
+           [ctx _LLVM-Context-Ref]
+           [num-bits exact-nonnegative-integer?])
+         _LLVM-Type-Ref]{
+Return an integer type with @racket[num-bits] width (e.g., 128 for @tt{i128}).}
+
+@subsubsection{Floating Point Types}
+
+@defproc[(LLVM-Float-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the 32-bit IEEE @tt{float} type.}
+
+@defproc[(LLVM-Double-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the 64-bit IEEE @tt{double} type.}
+
+@subsubsection{Void and Pointer Types}
+
+@defproc[(LLVM-Void-Type-In-Context [ctx _LLVM-Context-Ref]) _LLVM-Type-Ref]{
+Return the @tt{void} type (used as function return type for procedures
+that return nothing).}
+
+@defproc[(LLVM-Pointer-Type-In-Context
+           [ctx _LLVM-Context-Ref]
+           [address-space exact-nonnegative-integer?])
+         _LLVM-Type-Ref]{
+Return an opaque pointer type (@tt{ptr}) in the given address space.
+Pass @racket[0] for the default address space.}
+
+@subsubsection{Aggregate Types}
+
+@defproc[(LLVM-Struct-Type-In-Context
+           [ctx _LLVM-Context-Ref]
+           [element-types (listof _LLVM-Type-Ref)]
+           [element-count exact-nonnegative-integer?]
+           [packed _LLVM-Bool])
+         _LLVM-Type-Ref]{
+Create an anonymous struct type.  Pass @racket[0] for @racket[packed]
+for normal alignment.}
+
+@defproc[(LLVM-Struct-Create-Named
+           [ctx _LLVM-Context-Ref]
+           [name string?])
+         _LLVM-Type-Ref]{
+Create a named (opaque) struct type.  Set its body with
+@racket[LLVM-Struct-Set-Body].}
+
+@defproc[(LLVM-Struct-Set-Body
+           [struct-type _LLVM-Type-Ref]
+           [element-types (listof _LLVM-Type-Ref)]
+           [element-count exact-nonnegative-integer?]
+           [packed _LLVM-Bool])
+         void?]{
+Set the body of a named struct type created with
+@racket[LLVM-Struct-Create-Named].}
+
+@defproc[(LLVM-Array-Type
+           [element-type _LLVM-Type-Ref]
+           [count exact-nonnegative-integer?])
+         _LLVM-Type-Ref]{
+Create an array type of @racket[count] elements of @racket[element-type].}
+
+@defproc[(LLVM-Vector-Type
+           [element-type _LLVM-Type-Ref]
+           [count exact-nonnegative-integer?])
+         _LLVM-Type-Ref]{
+Create a fixed-length SIMD vector type of @racket[count] elements.}
+
+@subsubsection{Function Types}
 
 @defproc[(LLVM-Function-Type
            [return-type _LLVM-Type-Ref]
@@ -263,6 +348,9 @@ Build an integer add instruction.}
            [val _LLVM-Value-Ref])
          _LLVM-Value-Ref]{
 Build a return instruction.}
+
+@defproc[(LLVM-Build-Ret-Void [builder _LLVM-Builder-Ref]) _LLVM-Value-Ref]{
+Build a void return instruction (for functions returning @tt{void}).}
 
 @defproc[(LLVM-Dispose-Builder [builder _LLVM-Builder-Ref]) void?]{
 Dispose of an IR builder.}

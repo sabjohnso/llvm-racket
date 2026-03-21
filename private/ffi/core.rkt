@@ -10,7 +10,26 @@
          LLVM-Module-Create-With-Name-In-Context
          LLVM-Dispose-Module
          cancel-module-ownership!
+         ;; Integer types
+         LLVM-Int1-Type-In-Context
+         LLVM-Int8-Type-In-Context
+         LLVM-Int16-Type-In-Context
          LLVM-Int32-Type-In-Context
+         LLVM-Int64-Type-In-Context
+         LLVM-Int-Type-In-Context
+         ;; Float types
+         LLVM-Float-Type-In-Context
+         LLVM-Double-Type-In-Context
+         ;; Void and pointer types
+         LLVM-Void-Type-In-Context
+         LLVM-Pointer-Type-In-Context
+         ;; Aggregate types
+         LLVM-Struct-Type-In-Context
+         LLVM-Struct-Create-Named
+         LLVM-Struct-Set-Body
+         LLVM-Array-Type
+         LLVM-Vector-Type
+         ;; Function types
          LLVM-Function-Type
          LLVM-Add-Function
          LLVM-Get-Param
@@ -19,6 +38,7 @@
          LLVM-Position-Builder-At-End
          LLVM-Build-Add
          LLVM-Build-Ret
+         LLVM-Build-Ret-Void
          LLVM-Dispose-Builder
          LLVM-Print-Module-To-String
          LLVM-Dispose-Message
@@ -26,7 +46,8 @@
          LLVM-Get-Buffer-Size
          LLVM-Dispose-Memory-Buffer)
 
-;; Context
+;; ---- Context ---------------------------------------------------------------
+
 (define-llvm LLVM-Context-Dispose
   (_fun _LLVM-Context-Ref -> _void)
   #:wrap (deallocator))
@@ -35,11 +56,10 @@
   (_fun -> _LLVM-Context-Ref)
   #:wrap (allocator LLVM-Context-Dispose))
 
-;; Module — ownership can transfer to an execution engine.
-;; Marked as allocator/deallocator for the standalone case.
-;; When ownership transfers (e.g., to MCJIT), call
-;; cancel-module-ownership! to cancel the finalizer without
-;; freeing the module.
+;; ---- Module ----------------------------------------------------------------
+;; Ownership can transfer to an execution engine.  When it does, call
+;; cancel-module-ownership! to cancel the GC finalizer.
+
 (define-llvm LLVM-Dispose-Module
   (_fun _LLVM-Module-Ref -> _void)
   #:wrap (deallocator))
@@ -48,71 +68,117 @@
   (_fun _string _LLVM-Context-Ref -> _LLVM-Module-Ref)
   #:wrap (allocator/prevent-gc LLVM-Dispose-Module 1))
 
-;; Cancel the module's GC finalizer without freeing it.
-;; Used when ownership transfers to an execution engine.
 (define cancel-module-ownership!
   ((deallocator) (lambda (_mod) (void))))
 
-;; Types — handles into the context, not separately allocated.
-;; Anchor to context so it can't be GC'd while type ref is held.
+;; ---- Types -----------------------------------------------------------------
+;; Handles into the context.  Anchor result → context (arg 0).
+
+(define-llvm LLVM-Int1-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+(define-llvm LLVM-Int8-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+(define-llvm LLVM-Int16-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
 (define-llvm LLVM-Int32-Type-In-Context
   (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (ctx)
-               (define ty (proc ctx))
-               (when ty (prevent-gc! ty ctx))
-               ty))))
+  #:wrap (prevent-gc-wrap 0))
 
+(define-llvm LLVM-Int64-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+(define-llvm LLVM-Int-Type-In-Context
+  (_fun _LLVM-Context-Ref _uint -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+(define-llvm LLVM-Float-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+(define-llvm LLVM-Double-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+(define-llvm LLVM-Void-Type-In-Context
+  (_fun _LLVM-Context-Ref -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Address space 0 = default.
+(define-llvm LLVM-Pointer-Type-In-Context
+  (_fun _LLVM-Context-Ref _uint -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Anonymous struct.  packed = 0 for normal layout.
+(define-llvm LLVM-Struct-Type-In-Context
+  (_fun _LLVM-Context-Ref
+        (_list i _LLVM-Type-Ref)    ; element types
+        _uint                       ; element count
+        _LLVM-Bool                  ; packed
+        -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Named struct (opaque until body is set).
+(define-llvm LLVM-Struct-Create-Named
+  (_fun _LLVM-Context-Ref _string -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Set the body of a named struct.
+(define-llvm LLVM-Struct-Set-Body
+  (_fun _LLVM-Type-Ref              ; named struct
+        (_list i _LLVM-Type-Ref)    ; element types
+        _uint                       ; element count
+        _LLVM-Bool                  ; packed
+        -> _void))
+
+;; Array type.  LLVMArrayType takes unsigned int count (LLVM 15).
+;; Anchor to the element type — transitively keeps context alive.
+(define-llvm LLVM-Array-Type
+  (_fun _LLVM-Type-Ref _uint -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Fixed-length vector type.
+;; Anchor to the element type — transitively keeps context alive.
+(define-llvm LLVM-Vector-Type
+  (_fun _LLVM-Type-Ref _uint -> _LLVM-Type-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Anchor to the return type, which transitively keeps context alive.
 (define-llvm LLVM-Function-Type
   (_fun _LLVM-Type-Ref              ; return type
         (_list i _LLVM-Type-Ref)    ; param types
         _uint                       ; param count
         _LLVM-Bool                  ; is-vararg
         -> _LLVM-Type-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (ret-type param-types count vararg?)
-               (define ty (proc ret-type param-types count vararg?))
-               ;; Anchor to the return type — transitively keeps context alive.
-               (when ty (prevent-gc! ty ret-type))
-               ty))))
+  #:wrap (prevent-gc-wrap 0))
 
-;; Functions — handles into the module.
-;; Anchor to module so it can't be GC'd while function ref is held.
+;; ---- Functions -------------------------------------------------------------
+;; Handles into the module.  Anchor result → module.
+
 (define-llvm LLVM-Add-Function
   (_fun _LLVM-Module-Ref _string _LLVM-Type-Ref -> _LLVM-Value-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (mod name type)
-               (define fn (proc mod name type))
-               (when fn (prevent-gc! fn mod))
-               fn))))
+  #:wrap (prevent-gc-wrap 0))
 
-;; Params — handles into the function (and transitively the module).
-;; Anchor to the function so the module can't be GC'd.
+;; Params are handles into the function.  Anchor result → function.
 (define-llvm LLVM-Get-Param
   (_fun _LLVM-Value-Ref _uint -> _LLVM-Value-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (fn index)
-               (define param (proc fn index))
-               (when param (prevent-gc! param fn))
-               param))))
+  #:wrap (prevent-gc-wrap 0))
 
-;; Basic blocks — handles into the function.
-;; Anchor to the function so the module can't be GC'd.
+;; ---- Basic Blocks ----------------------------------------------------------
+;; Handles into the function.  Anchor result → function (arg 1).
+
 (define-llvm LLVM-Append-Basic-Block-In-Context
   (_fun _LLVM-Context-Ref _LLVM-Value-Ref _string -> _LLVM-Basic-Block-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (ctx fn name)
-               (define bb (proc ctx fn name))
-               (when bb (prevent-gc! bb fn))
-               bb))))
+  #:wrap (prevent-gc-wrap 1))
 
-;; Builder — tracks which basic block it's positioned at so that
-;; instructions can be anchored to it.
+;; ---- Builder ---------------------------------------------------------------
+
 (define-llvm LLVM-Dispose-Builder
   (_fun _LLVM-Builder-Ref -> _void)
   #:wrap (deallocator))
@@ -122,7 +188,7 @@
   #:wrap (allocator/prevent-gc LLVM-Dispose-Builder 0))
 
 ;; Track the basic block each builder is positioned at.
-;; Instructions built via the builder live in that block's function's module.
+;; Instructions live in that block's function's module.
 (define builder-current-bb (make-weak-hasheq))
 
 (define-llvm LLVM-Position-Builder-At-End
@@ -133,32 +199,33 @@
                (proc builder bb)
                (hash-set! builder-current-bb builder bb)))))
 
-;; Helper: anchor a builder instruction result to the builder's
-;; current basic block, preserving the chain result → bb → fn → mod → ctx.
+;; Anchor instruction result → builder's current basic block,
+;; preserving the chain: result → bb → fn → mod → ctx.
 (define (anchor-instruction! result builder)
   (when result
     (define bb (hash-ref builder-current-bb builder #f))
     (when bb (prevent-gc! result bb))))
 
+(define (instruction-wrap proc)
+  (lambda (builder . args)
+    (define result (apply proc builder args))
+    (anchor-instruction! result builder)
+    result))
+
 (define-llvm LLVM-Build-Add
   (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string -> _LLVM-Value-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (builder lhs rhs name)
-               (define result (proc builder lhs rhs name))
-               (anchor-instruction! result builder)
-               result))))
+  #:wrap (lambda (proc) (instruction-wrap proc)))
 
 (define-llvm LLVM-Build-Ret
   (_fun _LLVM-Builder-Ref _LLVM-Value-Ref -> _LLVM-Value-Ref)
-  #:wrap (let ()
-           (lambda (proc)
-             (lambda (builder val)
-               (define result (proc builder val))
-               (anchor-instruction! result builder)
-               result))))
+  #:wrap (lambda (proc) (instruction-wrap proc)))
 
-;; Utility — messages are allocated by LLVM, freed with Dispose-Message.
+(define-llvm LLVM-Build-Ret-Void
+  (_fun _LLVM-Builder-Ref -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; ---- Utility ---------------------------------------------------------------
+
 (define-llvm LLVM-Dispose-Message
   (_fun _pointer -> _void)
   #:wrap (deallocator))
@@ -167,7 +234,8 @@
   (_fun _LLVM-Module-Ref -> _pointer)
   #:wrap (allocator LLVM-Dispose-Message))
 
-;; Memory buffers
+;; ---- Memory Buffers --------------------------------------------------------
+
 (define-llvm LLVM-Dispose-Memory-Buffer
   (_fun _LLVM-Memory-Buffer-Ref -> _void)
   #:wrap (deallocator))

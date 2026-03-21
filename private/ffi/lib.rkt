@@ -10,6 +10,7 @@
          define-llvm
          kebab->pascal
          prevent-gc!
+         prevent-gc-wrap
          allocator/prevent-gc)
 
 ;; Try to load libLLVM from a specific directory with version fallback.
@@ -69,6 +70,18 @@
   (hash-update! prevent-gc-table dependent
                 (lambda (existing) (cons parent existing))
                 '()))
+
+;; Wrap a foreign function so its return value is anchored to one or
+;; more of its arguments.  parent-arg-indices are 0-based positions
+;; in the Racket-side argument list.
+(define (prevent-gc-wrap . parent-arg-indices)
+  (lambda (proc)
+    (lambda args
+      (define result (apply proc args))
+      (when result
+        (for ([idx (in-list parent-arg-indices)])
+          (prevent-gc! result (list-ref args idx))))
+      result)))
 
 ;; Compose (allocator dealloc) with prevent-gc! anchoring.
 ;; parent-arg-indices are 0-based positions in the Racket-side argument
