@@ -76,9 +76,8 @@
 
     (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
     (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
-    (define-values (failed? ee err)
+    (define ee
       (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
-    (check-equal? failed? 0)
 
     ;; Module ownership transferred.  Force GC — the module's finalizer
     ;; should have been canceled, so GC should NOT call LLVM-Dispose-Module.
@@ -87,6 +86,4 @@
     (force-gc!)
     (check-not-exn
      (lambda () (LLVM-Dispose-Execution-Engine ee))
-     "engine disposal should not double-free the transferred module")
-
-    (LLVM-Context-Dispose ctx)))
+     "engine disposal should not double-free the transferred module")))

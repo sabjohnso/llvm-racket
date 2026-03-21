@@ -375,13 +375,9 @@ Free a memory buffer.}
 @defproc[(LLVM-Verify-Module
            [mod _LLVM-Module-Ref]
            [action _LLVM-Verifier-Failure-Action])
-         (values _LLVM-Bool (or/c cpointer? #f))]{
-Verify @racket[mod] for correctness. Returns two values:
-@itemlist[
-  @item{A @racket[_LLVM-Bool] --- @racket[0] on success, non-zero on failure.}
-  @item{An error message pointer (free with @racket[LLVM-Dispose-Message])
-        or @racket[#f].}
-]}
+         void?]{
+Verify @racket[mod] for correctness. Raises @racket[exn:fail] with
+the LLVM error message if verification fails.}
 
 @; ---------------------------------------------------------------------------
 @subsection{Target Initialization}
@@ -407,14 +403,9 @@ Return the default target triple as a C string pointer. Free with
 @racket[LLVM-Dispose-Message].}
 
 @defproc[(LLVM-Get-Target-From-Triple [triple string?])
-         (values _LLVM-Bool _LLVM-Target-Ref (or/c cpointer? #f))]{
-Look up a target by @racket[triple]. Returns three values:
-@itemlist[
-  @item{A @racket[_LLVM-Bool] --- @racket[0] on success.}
-  @item{The @racket[_LLVM-Target-Ref] (valid only on success).}
-  @item{An error message pointer on failure (free with
-        @racket[LLVM-Dispose-Message]), or uninitialized on success.}
-]}
+         _LLVM-Target-Ref]{
+Look up a target by @racket[triple]. Raises @racket[exn:fail] if the
+triple is not recognized.}
 
 @defproc[(LLVM-Create-Target-Machine
            [target _LLVM-Target-Ref]
@@ -435,30 +426,21 @@ Dispose of a target machine.}
            [tm _LLVM-Target-Machine-Ref]
            [mod _LLVM-Module-Ref]
            [file-type _LLVM-Code-Gen-File-Type])
-         (values _LLVM-Bool _LLVM-Memory-Buffer-Ref (or/c cpointer? #f))]{
+         _LLVM-Memory-Buffer-Ref]{
 Emit @racket[mod] as assembly or object code into a memory buffer.
 Pass @racket['LLVMAssemblyFile] for assembly text or
-@racket['LLVMObjectFile] for machine code. Returns three values:
-@itemlist[
-  @item{A @racket[_LLVM-Bool] --- @racket[0] on success.}
-  @item{The @racket[_LLVM-Memory-Buffer-Ref] containing the output (valid only on success).}
-  @item{An error message pointer on failure (free with @racket[LLVM-Dispose-Message]).}
-]
-Read the result with @racket[LLVM-Get-Buffer-Start] and
-@racket[LLVM-Get-Buffer-Size]. Free with @racket[LLVM-Dispose-Memory-Buffer].}
+@racket['LLVMObjectFile] for machine code.  Raises @racket[exn:fail]
+on error.  Read the result with @racket[LLVM-Get-Buffer-Start] and
+@racket[LLVM-Get-Buffer-Size].}
 
 @defproc[(LLVM-Target-Machine-Emit-To-File
            [tm _LLVM-Target-Machine-Ref]
            [mod _LLVM-Module-Ref]
            [filename string?]
            [file-type _LLVM-Code-Gen-File-Type])
-         (values _LLVM-Bool (or/c cpointer? #f))]{
+         void?]{
 Emit @racket[mod] as assembly or object code to @racket[filename].
-Returns two values:
-@itemlist[
-  @item{A @racket[_LLVM-Bool] --- @racket[0] on success.}
-  @item{An error message pointer on failure (free with @racket[LLVM-Dispose-Message]).}
-]}
+Raises @racket[exn:fail] on error.}
 
 @; ---------------------------------------------------------------------------
 @subsection{Execution Engine (MCJIT)}
@@ -498,16 +480,10 @@ Initialize @racket[opts] to safe defaults. Pass
            [mod _LLVM-Module-Ref]
            [opts _LLVM-MCJIT-Compiler-Options-pointer]
            [size exact-nonnegative-integer?])
-         (values _LLVM-Bool _LLVM-Execution-Engine-Ref (or/c cpointer? #f))]{
-Create an MCJIT execution engine for @racket[mod]. Module ownership
-transfers to the engine on success --- do @bold{not} dispose the module
-separately. Returns three values:
-@itemlist[
-  @item{A @racket[_LLVM-Bool] --- @racket[0] on success.}
-  @item{The @racket[_LLVM-Execution-Engine-Ref] (valid only on success).}
-  @item{An error message pointer on failure (free with
-        @racket[LLVM-Dispose-Message]).}
-]}
+         _LLVM-Execution-Engine-Ref]{
+Create an MCJIT execution engine for @racket[mod].  Module ownership
+transfers to the engine --- do @bold{not} dispose the module separately.
+Raises @racket[exn:fail] on error.}
 
 @defproc[(LLVM-Get-Function-Address
            [ee _LLVM-Execution-Engine-Ref]
@@ -551,6 +527,23 @@ Unbox a generic value as an integer.}
 Dispose of a generic value.}
 
 @; ---------------------------------------------------------------------------
+@section{Resource Management}
+
+All LLVM resources allocated through this library are tracked by the
+garbage collector.  When a resource becomes unreachable, its finalizer
+runs automatically.  You @bold{do not} need to call @tt{Dispose} functions
+manually --- the GC handles cleanup.
+
+Lifetime dependencies are also tracked: a module keeps its context alive,
+a function keeps its module alive, and so on.  You cannot accidentally
+cause a use-after-free by dropping a parent reference while a child is
+still reachable.
+
+When a module is passed to @racket[LLVM-Create-MCJIT-Compiler-For-Module],
+its ownership transfers to the engine.  The module's finalizer is canceled
+and the engine takes responsibility for freeing it.
+
+@; ---------------------------------------------------------------------------
 @section{Quick Start}
 
 Build an @tt{add(i32, i32) -> i32} function, JIT-compile it, and call it:
@@ -561,40 +554,35 @@ Build an @tt{add(i32, i32) -> i32} function, JIT-compile it, and call it:
 (Initialize-Native-Target!)
 (LLVM-Link-In-MCJIT)
 
+(code:comment "Build the IR")
 (define ctx (LLVM-Context-Create))
 (define mod (LLVM-Module-Create-With-Name-In-Context "example" ctx))
 (define i32 (LLVM-Int32-Type-In-Context ctx))
-(define fn-type (LLVM-Function-Type i32 (list i32 i32) 2 0))
-(define fn (LLVM-Add-Function mod "add" fn-type))
-(define entry (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
-(define builder (LLVM-Create-Builder-In-Context ctx))
-(LLVM-Position-Builder-At-End builder entry)
-(LLVM-Build-Ret builder
-                (LLVM-Build-Add builder
-                               (LLVM-Get-Param fn 0)
-                               (LLVM-Get-Param fn 1)
-                               "tmp"))
-(LLVM-Dispose-Builder builder)
+(define fn (LLVM-Add-Function mod "add"
+             (LLVM-Function-Type i32 (list i32 i32) 2 0)))
+(define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+(define bld (LLVM-Create-Builder-In-Context ctx))
+(LLVM-Position-Builder-At-End bld bb)
+(LLVM-Build-Ret bld
+  (LLVM-Build-Add bld (LLVM-Get-Param fn 0)
+                      (LLVM-Get-Param fn 1) "tmp"))
 
-(define-values (vfail? verr)
-  (LLVM-Verify-Module mod 'LLVMReturnStatusAction))
-(when verr (LLVM-Dispose-Message verr))
+(code:comment "Verify")
+(LLVM-Verify-Module mod 'LLVMReturnStatusAction)
 
+(code:comment "JIT compile")
 (define opts
   (make-LLVM-MCJIT-Compiler-Options
    0 'LLVMCodeModelJITDefault 0 0 #f))
 (LLVM-Initialize-MCJIT-Compiler-Options
  opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
-(define-values (efail? ee eerr)
+(define ee
   (LLVM-Create-MCJIT-Compiler-For-Module
    mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
-(when (and (not (zero? efail?)) eerr)
-  (LLVM-Dispose-Message eerr))
 
-(define addr (LLVM-Get-Function-Address ee "add"))
-(define add-fn (cast addr _uint64 (_fun _int32 _int32 -> _int32)))
+(code:comment "Call the JIT'd function")
+(define add-fn
+  (cast (LLVM-Get-Function-Address ee "add")
+        _uint64 (_fun _int32 _int32 -> _int32)))
 (add-fn 3 4) (code:comment "=> 7")
-
-(LLVM-Dispose-Execution-Engine ee)
-(LLVM-Context-Dispose ctx)
 ]

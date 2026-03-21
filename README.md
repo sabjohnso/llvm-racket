@@ -3,10 +3,12 @@ llvm
 
 LLVM bindings for Racket via the LLVM C API.
 
+All resources are GC-managed — no manual `Dispose` calls needed.
+
 ## Installation
 
 ```sh
-raco pkg install
+raco pkg install --link --name llvm
 ```
 
 ## Usage
@@ -30,19 +32,18 @@ raco pkg install
 (LLVM-Build-Ret bld (LLVM-Build-Add bld
                                      (LLVM-Get-Param fn 0)
                                      (LLVM-Get-Param fn 1) "tmp"))
-(LLVM-Dispose-Builder bld)
 
-;; JIT compile and call
+;; Verify and JIT compile
+(LLVM-Verify-Module mod 'LLVMReturnStatusAction)
 (define opts (make-LLVM-MCJIT-Compiler-Options 0 'LLVMCodeModelJITDefault 0 0 #f))
 (LLVM-Initialize-MCJIT-Compiler-Options opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
-(define-values (_fail? ee _err)
+(define ee
   (LLVM-Create-MCJIT-Compiler-For-Module mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+
+;; Call the JIT'd function
 (define add-fn (cast (LLVM-Get-Function-Address ee "add")
                      _uint64 (_fun _int32 _int32 -> _int32)))
 (add-fn 3 4) ; => 7
-
-(LLVM-Dispose-Execution-Engine ee)
-(LLVM-Context-Dispose ctx)
 ```
 
 ## Documentation

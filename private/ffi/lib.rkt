@@ -11,7 +11,9 @@
          kebab->pascal
          prevent-gc!
          prevent-gc-wrap
-         allocator/prevent-gc)
+         allocator/prevent-gc
+         make-register-allocation
+         check-llvm-error)
 
 ;; Try to load libLLVM from a specific directory with version fallback.
 (define (try-load-from dir)
@@ -83,6 +85,13 @@
           (prevent-gc! result (list-ref args idx))))
       result)))
 
+;; Register a resource returned via out-parameter with the
+;; allocator/deallocator finalization mechanism.  Returns a function
+;; that takes a resource and returns it, with a GC finalizer attached.
+;; Explicit calls to the corresponding deallocator cancel the finalizer.
+(define (make-register-allocation dealloc)
+  ((allocator dealloc) (lambda (v) v)))
+
 ;; Compose (allocator dealloc) with prevent-gc! anchoring.
 ;; parent-arg-indices are 0-based positions in the Racket-side argument
 ;; list; each referenced argument is anchored to the return value.
@@ -96,4 +105,23 @@
         (for ([idx (in-list parent-arg-indices)])
           (prevent-gc! result (list-ref args idx))))
       result)))
+
+;; Check an LLVM error return.  If result is non-zero, extract the
+;; error message from the pointer, free it, and raise exn:fail.
+(define (check-llvm-error who result err-ptr)
+  (unless (zero? result)
+    (define msg
+      (if err-ptr
+          (let ([s (cast err-ptr _pointer _string)])
+            (LLVMDisposeMessage err-ptr)
+            s)
+          "unknown LLVM error"))
+    (error who "~a" msg)))
+
+;; Raw LLVMDisposeMessage for use in check-llvm-error.
+;; We can't use the wrapped LLVM-Dispose-Message from core.rkt
+;; (circular dependency), so we bind it directly here.
+(define LLVMDisposeMessage
+  (get-ffi-obj "LLVMDisposeMessage" llvm-lib
+               (_fun _pointer -> _void)))
 

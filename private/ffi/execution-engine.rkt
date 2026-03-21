@@ -41,9 +41,12 @@
   (_fun _LLVM-Execution-Engine-Ref -> _void)
   #:wrap (deallocator))
 
-;; Create MCJIT execution engine. Module ownership transfers to engine.
-;; On success, the module is anchored to the engine so the lifetime
-;; chain engine → module → context is preserved.
+;; Register out-param engine with the allocator mechanism.
+(define register-engine!
+  (make-register-allocation LLVM-Dispose-Execution-Engine))
+
+;; Create MCJIT execution engine.  Module ownership transfers to engine.
+;; Raises exn:fail on error.  Returns the execution engine on success.
 (define-llvm LLVM-Create-MCJIT-Compiler-For-Module
   (_fun (ee : (_ptr o _LLVM-Execution-Engine-Ref))
         _LLVM-Module-Ref
@@ -56,12 +59,11 @@
            (lambda (proc)
              (lambda (mod opts size)
                (define-values (result ee err) (proc mod opts size))
-               (when (zero? result)
-                 ;; Engine now owns the module — cancel the module's
-                 ;; GC finalizer and anchor it to the engine instead.
-                 (cancel-module-ownership! mod)
-                 (prevent-gc! ee mod))
-               (values result ee err)))))
+               (check-llvm-error 'LLVM-Create-MCJIT-Compiler-For-Module result err)
+               (register-engine! ee)
+               (cancel-module-ownership! mod)
+               (prevent-gc! ee mod)
+               ee))))
 
 ;; Get address of a JIT'd function. Returns 0 on failure.
 (define-llvm LLVM-Get-Function-Address
