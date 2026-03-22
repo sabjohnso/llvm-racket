@@ -8,21 +8,190 @@
 
 LLVM bindings for Racket via the LLVM C API.
 
-The package provides a thin unsafe FFI layer that maps directly to the
+@defmodule[llvm/unsafe]
+
+The package provides a thin FFI layer that maps directly to the
 @hyperlink["https://llvm.org/doxygen/group__LLVMC.html"]{LLVM C API}.
 Naming follows uppercase-kebab convention: the C function
 @tt{LLVMContextCreate} becomes @racket[LLVM-Context-Create].
 
+All resources are GC-managed --- you do not need to call @tt{Dispose}
+functions manually.  Errors from LLVM are raised as @racket[exn:fail].
+
 @local-table-of-contents[]
 
+@; ===========================================================================
+@section{Guide}
+
 @; ---------------------------------------------------------------------------
-@section{Unsafe FFI Layer}
+@subsection{Quick Start: ORC JIT}
 
-@defmodule[llvm/unsafe]
+Build an @tt{add(i32, i32) -> i32} function, JIT-compile it with the
+modern ORC JIT, and call it:
 
-This module re-exports every binding from the subsections below.
-All functions are unsafe foreign calls --- misuse (wrong types,
-use-after-free, double-free) can crash the process.
+@racketblock[
+(require llvm/unsafe ffi/unsafe)
+
+(Initialize-Native-Target!)
+
+(code:comment "Create a thread-safe context and build IR")
+(define ts-ctx (LLVM-Orc-Create-New-Thread-Safe-Context))
+(define ctx (LLVM-Orc-Thread-Safe-Context-Get-Context ts-ctx))
+(define mod (LLVM-Module-Create-With-Name-In-Context "example" ctx))
+(define i32 (LLVM-Int32-Type-In-Context ctx))
+(define fn (LLVM-Add-Function mod "add"
+             (LLVM-Function-Type i32 (list i32 i32) 2 0)))
+(define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+(define bld (LLVM-Create-Builder-In-Context ctx))
+(LLVM-Position-Builder-At-End bld bb)
+(LLVM-Build-Ret bld
+  (LLVM-Build-Add bld (LLVM-Get-Param fn 0)
+                      (LLVM-Get-Param fn 1) "tmp"))
+
+(code:comment "Verify and wrap in a thread-safe module")
+(LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+(define ts-mod (LLVM-Orc-Create-New-Thread-Safe-Module mod ts-ctx))
+
+(code:comment "Create LLJIT and add the module")
+(define jit (LLVM-Orc-Create-LLJIT #f))
+(LLVM-Orc-LLJIT-Add-LLVM-IR-Module
+ jit (LLVM-Orc-LLJIT-Get-Main-JIT-Dylib jit) ts-mod)
+
+(code:comment "Look up and call the function")
+(define add-fn
+  (cast (LLVM-Orc-LLJIT-Lookup jit "add")
+        _uint64 (_fun _int32 _int32 -> _int32)))
+(add-fn 3 4) (code:comment "=> 7")
+]
+
+@; ---------------------------------------------------------------------------
+@subsection{Quick Start: MCJIT (Legacy)}
+
+MCJIT is the older JIT engine.  It compiles an entire module at once and
+does not support incremental compilation.  Prefer ORC JIT for new code.
+
+@racketblock[
+(require llvm/unsafe ffi/unsafe)
+
+(Initialize-Native-Target!)
+(LLVM-Link-In-MCJIT)
+
+(code:comment "Build the IR")
+(define ctx (LLVM-Context-Create))
+(define mod (LLVM-Module-Create-With-Name-In-Context "example" ctx))
+(define i32 (LLVM-Int32-Type-In-Context ctx))
+(define fn (LLVM-Add-Function mod "add"
+             (LLVM-Function-Type i32 (list i32 i32) 2 0)))
+(define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
+(define bld (LLVM-Create-Builder-In-Context ctx))
+(LLVM-Position-Builder-At-End bld bb)
+(LLVM-Build-Ret bld
+  (LLVM-Build-Add bld (LLVM-Get-Param fn 0)
+                      (LLVM-Get-Param fn 1) "tmp"))
+
+(code:comment "Verify and JIT compile")
+(LLVM-Verify-Module mod 'LLVMReturnStatusAction)
+(define opts
+  (make-LLVM-MCJIT-Compiler-Options
+   0 'LLVMCodeModelJITDefault 0 0 #f))
+(LLVM-Initialize-MCJIT-Compiler-Options
+ opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
+(define ee
+  (LLVM-Create-MCJIT-Compiler-For-Module
+   mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
+
+(code:comment "Call the JIT'd function")
+(define add-fn
+  (cast (LLVM-Get-Function-Address ee "add")
+        _uint64 (_fun _int32 _int32 -> _int32)))
+(add-fn 3 4) (code:comment "=> 7")
+]
+
+@; ---------------------------------------------------------------------------
+@subsection{Building IR}
+
+LLVM IR is built by creating a context, a module, functions with basic
+blocks, and using a builder to emit instructions:
+
+@itemlist[
+  @item{@bold{Context} --- owns types, metadata, and string tables.
+        Create with @racket[LLVM-Context-Create].  For ORC JIT, use
+        @racket[LLVM-Orc-Create-New-Thread-Safe-Context] instead.}
+  @item{@bold{Module} --- a container for functions and globals.
+        Create with @racket[LLVM-Module-Create-With-Name-In-Context].}
+  @item{@bold{Function} --- declared with @racket[LLVM-Add-Function]
+        and a function type from @racket[LLVM-Function-Type].}
+  @item{@bold{Basic block} --- an instruction sequence with a single
+        entry and terminator.  Append with
+        @racket[LLVM-Append-Basic-Block-In-Context].}
+  @item{@bold{Builder} --- a cursor that emits instructions into a
+        basic block.  Position with @racket[LLVM-Position-Builder-At-End],
+        then call @racket[LLVM-Build-Add], @racket[LLVM-Build-Ret], etc.}
+]
+
+Every basic block must end with a terminator (@racket[LLVM-Build-Ret],
+@racket[LLVM-Build-Br], @racket[LLVM-Build-Cond-Br], or
+@racket[LLVM-Build-Unreachable]).
+
+@; ---------------------------------------------------------------------------
+@subsection{Optimization}
+
+Use the new pass manager to optimize a module:
+
+@racketblock[
+(define opts (LLVM-Create-Pass-Builder-Options))
+(LLVM-Run-Passes mod "default<O2>" tm opts)
+]
+
+Common pipeline strings: @racket["default<O0>"] through @racket["default<O3>"],
+or individual passes like @racket["mem2reg,instcombine,gvn"].
+
+The legacy pass manager is also available for per-function optimization.
+
+@; ---------------------------------------------------------------------------
+@subsection{Serialization}
+
+Modules can be serialized to bitcode and loaded back:
+
+@racketblock[
+(code:comment "Save")
+(LLVM-Write-Bitcode-To-File mod "output.bc")
+
+(code:comment "Load")
+(define mod2 (LLVM-Parse-Bitcode-File ctx "output.bc"))
+]
+
+LLVM IR text (@tt{.ll} files) can be parsed with
+@racket[LLVM-Parse-IR-In-Context], and the IR text of any module can be
+retrieved with @racket[LLVM-Print-Module-To-String].
+
+@; ---------------------------------------------------------------------------
+@subsection{Resource Management}
+
+All LLVM resources allocated through this library are tracked by the
+garbage collector.  When a resource becomes unreachable, its finalizer
+runs automatically.  You @bold{do not} need to call @tt{Dispose} functions
+manually --- the GC handles cleanup.
+
+Lifetime dependencies are also tracked: a module keeps its context alive,
+a function keeps its module alive, and so on.  You cannot accidentally
+cause a use-after-free by dropping a parent reference while a child is
+still reachable.
+
+When a module is passed to @racket[LLVM-Create-MCJIT-Compiler-For-Module]
+or @racket[LLVM-Orc-Create-New-Thread-Safe-Module], its ownership
+transfers.  The module's finalizer is canceled and the new owner takes
+responsibility for freeing it.
+
+@bold{Context isolation.}  Every type, module, builder, and function
+belongs to exactly one context.  Do not mix objects from different
+contexts --- for example, do not use a type created in one context to
+define a function in a module from another context.  LLVM will not
+detect the mismatch; the result is silent corruption or a crash.
+When in doubt, create a single context and use it everywhere.
+
+@; ===========================================================================
+@section{API Reference}
 
 @; ---------------------------------------------------------------------------
 @subsection{Library Loading}
@@ -1331,70 +1500,3 @@ Get the string data from a remark string reference.}
 @defproc[(LLVM-Remark-String-Get-Len [str cpointer?]) exact-nonnegative-integer?]{
 Get the length of a remark string.}
 
-@; ---------------------------------------------------------------------------
-@section{Resource Management}
-
-All LLVM resources allocated through this library are tracked by the
-garbage collector.  When a resource becomes unreachable, its finalizer
-runs automatically.  You @bold{do not} need to call @tt{Dispose} functions
-manually --- the GC handles cleanup.
-
-Lifetime dependencies are also tracked: a module keeps its context alive,
-a function keeps its module alive, and so on.  You cannot accidentally
-cause a use-after-free by dropping a parent reference while a child is
-still reachable.
-
-When a module is passed to @racket[LLVM-Create-MCJIT-Compiler-For-Module],
-its ownership transfers to the engine.  The module's finalizer is canceled
-and the engine takes responsibility for freeing it.
-
-@bold{Context isolation.}  Every type, module, builder, and function
-belongs to exactly one @racket[_LLVM-Context-Ref].  Do not mix objects
-from different contexts --- for example, do not use a type created in
-one context to define a function in a module from another context.
-LLVM will not detect the mismatch; the result is silent corruption or
-a crash.  When in doubt, create a single context and use it everywhere.
-
-@; ---------------------------------------------------------------------------
-@section{Quick Start}
-
-Build an @tt{add(i32, i32) -> i32} function, JIT-compile it, and call it:
-
-@racketblock[
-(require llvm/unsafe ffi/unsafe)
-
-(Initialize-Native-Target!)
-(LLVM-Link-In-MCJIT)
-
-(code:comment "Build the IR")
-(define ctx (LLVM-Context-Create))
-(define mod (LLVM-Module-Create-With-Name-In-Context "example" ctx))
-(define i32 (LLVM-Int32-Type-In-Context ctx))
-(define fn (LLVM-Add-Function mod "add"
-             (LLVM-Function-Type i32 (list i32 i32) 2 0)))
-(define bb (LLVM-Append-Basic-Block-In-Context ctx fn "entry"))
-(define bld (LLVM-Create-Builder-In-Context ctx))
-(LLVM-Position-Builder-At-End bld bb)
-(LLVM-Build-Ret bld
-  (LLVM-Build-Add bld (LLVM-Get-Param fn 0)
-                      (LLVM-Get-Param fn 1) "tmp"))
-
-(code:comment "Verify")
-(LLVM-Verify-Module mod 'LLVMReturnStatusAction)
-
-(code:comment "JIT compile")
-(define opts
-  (make-LLVM-MCJIT-Compiler-Options
-   0 'LLVMCodeModelJITDefault 0 0 #f))
-(LLVM-Initialize-MCJIT-Compiler-Options
- opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options))
-(define ee
-  (LLVM-Create-MCJIT-Compiler-For-Module
-   mod opts (ctype-sizeof _LLVM-MCJIT-Compiler-Options)))
-
-(code:comment "Call the JIT'd function")
-(define add-fn
-  (cast (LLVM-Get-Function-Address ee "add")
-        _uint64 (_fun _int32 _int32 -> _int32)))
-(add-fn 3 4) (code:comment "=> 7")
-]
