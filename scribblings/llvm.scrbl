@@ -1002,6 +1002,74 @@ Set the data layout string for @racket[mod].}
 Get the data layout string of @racket[mod].}
 
 @; ---------------------------------------------------------------------------
+@subsection{ORC JIT}
+
+The ORC JIT is the modern replacement for MCJIT.  It supports
+incremental compilation and lazy materialization.
+
+@subsubsection{Thread-Safe Context}
+
+@defproc[(LLVM-Orc-Create-New-Thread-Safe-Context) _LLVM-Orc-Thread-Safe-Context-Ref]{
+Create a new thread-safe context.  GC-managed.}
+
+@defproc[(LLVM-Orc-Dispose-Thread-Safe-Context [ts-ctx _LLVM-Orc-Thread-Safe-Context-Ref]) void?]{
+Dispose of a thread-safe context.}
+
+@defproc[(LLVM-Orc-Thread-Safe-Context-Get-Context
+           [ts-ctx _LLVM-Orc-Thread-Safe-Context-Ref])
+         _LLVM-Context-Ref]{
+Get the underlying LLVM context.  The context is owned by
+@racket[ts-ctx] --- do not dispose it separately.}
+
+@subsubsection{Thread-Safe Module}
+
+@defproc[(LLVM-Orc-Create-New-Thread-Safe-Module
+           [mod _LLVM-Module-Ref]
+           [ts-ctx _LLVM-Orc-Thread-Safe-Context-Ref])
+         _LLVM-Orc-Thread-Safe-Module-Ref]{
+Wrap @racket[mod] in a thread-safe module.  Takes ownership of
+@racket[mod] --- do not dispose it separately.  GC-managed.}
+
+@defproc[(LLVM-Orc-Dispose-Thread-Safe-Module [ts-mod _LLVM-Orc-Thread-Safe-Module-Ref]) void?]{
+Dispose of a thread-safe module.}
+
+@subsubsection{LLJIT}
+
+@defproc[(LLVM-Orc-Create-LLJIT [builder (or/c cpointer? #f)]) _LLVM-Orc-LLJIT-Ref]{
+Create an LLJIT instance.  Pass @racket[#f] for @racket[builder] to
+use default settings.  Raises @racket[exn:fail] on error.  GC-managed.}
+
+@defproc[(LLVM-Orc-Dispose-LLJIT [jit _LLVM-Orc-LLJIT-Ref]) void?]{
+Dispose of an LLJIT instance.  Raises @racket[exn:fail] if disposal fails.}
+
+@defproc[(LLVM-Orc-LLJIT-Get-Main-JIT-Dylib [jit _LLVM-Orc-LLJIT-Ref])
+         _LLVM-Orc-JIT-Dylib-Ref]{
+Get the main JIT dynamic library for adding modules.}
+
+@defproc[(LLVM-Orc-LLJIT-Get-Execution-Session [jit _LLVM-Orc-LLJIT-Ref])
+         _LLVM-Orc-Execution-Session-Ref]{
+Get the execution session for this LLJIT instance.}
+
+@defproc[(LLVM-Orc-LLJIT-Get-Triple-String [jit _LLVM-Orc-LLJIT-Ref]) string?]{
+Get the target triple string for this LLJIT instance.}
+
+@defproc[(LLVM-Orc-LLJIT-Add-LLVM-IR-Module
+           [jit _LLVM-Orc-LLJIT-Ref]
+           [dylib _LLVM-Orc-JIT-Dylib-Ref]
+           [ts-mod _LLVM-Orc-Thread-Safe-Module-Ref])
+         void?]{
+Add a thread-safe module to @racket[dylib].  Takes ownership of
+@racket[ts-mod].  Raises @racket[exn:fail] on error.}
+
+@defproc[(LLVM-Orc-LLJIT-Lookup
+           [jit _LLVM-Orc-LLJIT-Ref]
+           [name string?])
+         exact-nonnegative-integer?]{
+Look up a symbol by @racket[name] and return its address as a
+@racket[_uint64].  Raises @racket[exn:fail] if the symbol is not found.
+Cast the result to a callable function pointer with @racket[cast].}
+
+@; ---------------------------------------------------------------------------
 @section{Resource Management}
 
 All LLVM resources allocated through this library are tracked by the

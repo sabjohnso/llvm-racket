@@ -13,7 +13,9 @@
          prevent-gc-wrap
          allocator/prevent-gc
          make-register-allocation
-         check-llvm-error)
+         check-llvm-error
+         check-llvm-error-ref
+         consume-llvm-error-ref)
 
 ;; Try to load libLLVM from a specific directory with version fallback.
 (define (try-load-from dir)
@@ -124,4 +126,29 @@
 (define LLVMDisposeMessage
   (get-ffi-obj "LLVMDisposeMessage" llvm-lib
                (_fun _pointer -> _void)))
+
+;; Check an LLVMErrorRef return.  If non-null, extract the error
+;; message, free it, and raise exn:fail.  Used by the new pass
+;; manager and ORC JIT APIs.
+(define LLVMGetErrorMessage
+  (get-ffi-obj "LLVMGetErrorMessage" llvm-lib
+               (_fun _pointer -> _pointer)))
+
+(define LLVMDisposeErrorMessage
+  (get-ffi-obj "LLVMDisposeErrorMessage" llvm-lib
+               (_fun _pointer -> _void)))
+
+(define (check-llvm-error-ref who err-ref)
+  (when err-ref
+    (define msg-ptr (LLVMGetErrorMessage err-ref))
+    (define msg (if msg-ptr (cast msg-ptr _pointer _string) "unknown LLVM error"))
+    (when msg-ptr (LLVMDisposeErrorMessage msg-ptr))
+    (error who "~a" msg)))
+
+;; Silently consume an LLVMErrorRef without raising.
+;; Used in GC finalizers where exceptions can't propagate.
+(define (consume-llvm-error-ref err-ref)
+  (when err-ref
+    (define msg-ptr (LLVMGetErrorMessage err-ref))
+    (when msg-ptr (LLVMDisposeErrorMessage msg-ptr))))
 

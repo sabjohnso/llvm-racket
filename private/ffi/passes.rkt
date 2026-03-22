@@ -25,24 +25,6 @@
          LLVM-Add-Promote-Memory-To-Register-Pass
          LLVM-Add-Scalar-Repl-Aggregates-Pass-SSA)
 
-;; ---- LLVMError helpers (used by new pass manager) -------------------------
-;; LLVMRunPasses returns LLVMErrorRef (null on success, error on failure).
-
-(define LLVMGetErrorMessage
-  (get-ffi-obj "LLVMGetErrorMessage" llvm-lib
-               (_fun _pointer -> _pointer)))
-
-(define LLVMDisposeErrorMessage
-  (get-ffi-obj "LLVMDisposeErrorMessage" llvm-lib
-               (_fun _pointer -> _void)))
-
-(define (check-llvm-error-ref who err-ref)
-  (when err-ref
-    (define msg-ptr (LLVMGetErrorMessage err-ref))
-    (define msg (if msg-ptr (cast msg-ptr _pointer _string) "unknown LLVM error"))
-    (when msg-ptr (LLVMDisposeErrorMessage msg-ptr))
-    (error who "~a" msg)))
-
 ;; ---- New Pass Manager (LLVM 13+) ------------------------------------------
 
 (define-llvm LLVM-Dispose-Pass-Builder-Options

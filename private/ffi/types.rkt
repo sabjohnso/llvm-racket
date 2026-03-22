@@ -16,6 +16,11 @@
          _LLVM-Target-Ref _LLVM-Target-Ref/null
          _LLVM-Target-Machine-Ref _LLVM-Target-Machine-Ref/null
          _LLVM-Pass-Builder-Options-Ref _LLVM-Pass-Builder-Options-Ref/null
+         _LLVM-Orc-LLJIT-Ref _LLVM-Orc-LLJIT-Ref/null
+         _LLVM-Orc-JIT-Dylib-Ref _LLVM-Orc-JIT-Dylib-Ref/null
+         _LLVM-Orc-Thread-Safe-Context-Ref _LLVM-Orc-Thread-Safe-Context-Ref/null
+         _LLVM-Orc-Thread-Safe-Module-Ref _LLVM-Orc-Thread-Safe-Module-Ref/null
+         _LLVM-Orc-Execution-Session-Ref _LLVM-Orc-Execution-Session-Ref/null
          _LLVM-Bool)
 
 (define-cpointer-type _LLVM-Context-Ref)
@@ -33,5 +38,10 @@
 (define-cpointer-type _LLVM-Target-Machine-Ref)
 
 (define-cpointer-type _LLVM-Pass-Builder-Options-Ref)
+(define-cpointer-type _LLVM-Orc-LLJIT-Ref)
+(define-cpointer-type _LLVM-Orc-JIT-Dylib-Ref)
+(define-cpointer-type _LLVM-Orc-Thread-Safe-Context-Ref)
+(define-cpointer-type _LLVM-Orc-Thread-Safe-Module-Ref)
+(define-cpointer-type _LLVM-Orc-Execution-Session-Ref)
 
 (define _LLVM-Bool _int)
