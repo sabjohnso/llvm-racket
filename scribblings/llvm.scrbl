@@ -267,6 +267,54 @@ An LLVM target description handle.}
               @defthing[_LLVM-Target-Machine-Ref/null ctype?])]{
 An LLVM target machine handle.}
 
+@deftogether[(@defthing[_LLVM-Pass-Builder-Options-Ref ctype?]
+              @defthing[_LLVM-Pass-Builder-Options-Ref/null ctype?])]{
+Pass builder options handle (for the new pass manager).}
+
+@deftogether[(@defthing[_LLVM-Orc-LLJIT-Ref ctype?]
+              @defthing[_LLVM-Orc-LLJIT-Ref/null ctype?])]{
+An ORC LLJIT (JIT compiler) handle.}
+
+@deftogether[(@defthing[_LLVM-Orc-JIT-Dylib-Ref ctype?]
+              @defthing[_LLVM-Orc-JIT-Dylib-Ref/null ctype?])]{
+An ORC JIT dynamic library handle.}
+
+@deftogether[(@defthing[_LLVM-Orc-Thread-Safe-Context-Ref ctype?]
+              @defthing[_LLVM-Orc-Thread-Safe-Context-Ref/null ctype?])]{
+An ORC thread-safe context handle.}
+
+@deftogether[(@defthing[_LLVM-Orc-Thread-Safe-Module-Ref ctype?]
+              @defthing[_LLVM-Orc-Thread-Safe-Module-Ref/null ctype?])]{
+An ORC thread-safe module handle.}
+
+@deftogether[(@defthing[_LLVM-Orc-Execution-Session-Ref ctype?]
+              @defthing[_LLVM-Orc-Execution-Session-Ref/null ctype?])]{
+An ORC execution session handle.}
+
+@deftogether[(@defthing[_LLVM-Object-File-Ref ctype?]
+              @defthing[_LLVM-Object-File-Ref/null ctype?])]{
+An object file handle.}
+
+@deftogether[(@defthing[_LLVM-Section-Iterator-Ref ctype?]
+              @defthing[_LLVM-Section-Iterator-Ref/null ctype?])]{
+An object file section iterator handle.}
+
+@deftogether[(@defthing[_LLVM-Symbol-Iterator-Ref ctype?]
+              @defthing[_LLVM-Symbol-Iterator-Ref/null ctype?])]{
+An object file symbol iterator handle.}
+
+@deftogether[(@defthing[_LLVM-Relocation-Iterator-Ref ctype?]
+              @defthing[_LLVM-Relocation-Iterator-Ref/null ctype?])]{
+An object file relocation iterator handle.}
+
+@deftogether[(@defthing[_LLVM-DI-Builder-Ref ctype?]
+              @defthing[_LLVM-DI-Builder-Ref/null ctype?])]{
+A debug info builder handle.}
+
+@deftogether[(@defthing[_LLVM-Metadata-Ref ctype?]
+              @defthing[_LLVM-Metadata-Ref/null ctype?])]{
+An LLVM metadata handle (debug info nodes, etc.).}
+
 @defthing[_LLVM-Bool ctype?]{
 Integer type used as a boolean in the LLVM C API (@racket[_int]).
 Zero is false; non-zero is true.}
@@ -384,6 +432,25 @@ Visibility for global values.
   @item{@racket['LLVMDefaultVisibility] (0)}
   @item{@racket['LLVMHiddenVisibility] (1)}
   @item{@racket['LLVMProtectedVisibility] (2)}
+]}
+
+@defthing[_LLVM-DWARF-Source-Language ctype?]{
+DWARF source language for debug info compile units.  Common values:
+@itemlist[
+  @item{@racket['LLVMDWARFSourceLanguageC] (1) --- C}
+  @item{@racket['LLVMDWARFSourceLanguageC99] (11) --- C99}
+  @item{@racket['LLVMDWARFSourceLanguageC11] (28) --- C11}
+  @item{@racket['LLVMDWARFSourceLanguageC_plus_plus] (3) --- C++}
+  @item{@racket['LLVMDWARFSourceLanguageRust] (27) --- Rust}
+  @item{@racket['LLVMDWARFSourceLanguagePython] (19) --- Python}
+]}
+
+@defthing[_LLVM-DWARF-Emission-Kind ctype?]{
+DWARF debug info emission level.
+@itemlist[
+  @item{@racket['LLVMDWARFEmissionNone] (0) --- no debug info}
+  @item{@racket['LLVMDWARFEmissionFull] (1) --- full debug info}
+  @item{@racket['LLVMDWARFEmissionLineTablesOnly] (2) --- line tables only}
 ]}
 
 @; ---------------------------------------------------------------------------
@@ -1198,30 +1265,30 @@ GC-managed.}
 Dispose of an object file.}
 
 @defproc[(LLVM-Object-File-Sections [obj _LLVM-Object-File-Ref])
-         (listof section-info?)]{
+         list?]{
 Return a list of all sections in @racket[obj].  Each element is a
-@racket[section-info] struct with @racket[section-info-name],
-@racket[section-info-size], and @racket[section-info-address] fields.}
+@tt{section-info} struct with @tt{section-info-name},
+@tt{section-info-size}, and @tt{section-info-address} fields.}
 
 @defproc[(LLVM-Object-File-Symbols [obj _LLVM-Object-File-Ref])
-         (listof symbol-info?)]{
+         list?]{
 Return a list of all symbols in @racket[obj].  Each element is a
-@racket[symbol-info] struct with @racket[symbol-info-name],
-@racket[symbol-info-address], and @racket[symbol-info-size] fields.}
+@tt{symbol-info} struct with @tt{symbol-info-name},
+@tt{symbol-info-address}, and @tt{symbol-info-size} fields.}
 
 @defproc[(LLVM-Section-Relocations [section-iter _LLVM-Section-Iterator-Ref])
-         (listof relocation-info?)]{
+         list?]{
 Return a list of all relocations for the section at the current iterator
-position.  Each element is a @racket[relocation-info] struct with
-@racket[relocation-info-offset], @racket[relocation-info-type], and
-@racket[relocation-info-type-name] fields.  Use with the low-level
+position.  Each element is a @tt{relocation-info} struct with
+@tt{relocation-info-offset}, @tt{relocation-info-type}, and
+@tt{relocation-info-type-name} fields.  Use with the low-level
 section iterator API.}
 
 Low-level iterator functions are also available for sections
-(@racket[LLVM-Get-Sections], @racket[LLVM-Move-To-Next-Section], etc.),
-symbols (@racket[LLVM-Get-Symbols], @racket[LLVM-Move-To-Next-Symbol], etc.),
-and relocations (@racket[LLVM-Get-Relocations],
-@racket[LLVM-Move-To-Next-Relocation], etc.).
+(@tt{LLVM-Get-Sections}, @tt{LLVM-Move-To-Next-Section}, etc.),
+symbols (@tt{LLVM-Get-Symbols}, @tt{LLVM-Move-To-Next-Symbol}, etc.),
+and relocations (@tt{LLVM-Get-Relocations},
+@tt{LLVM-Move-To-Next-Relocation}, etc.).
 
 @; ---------------------------------------------------------------------------
 @subsection{Debug Info (DIBuilder)}
@@ -1451,10 +1518,10 @@ Get the name of a value (function, global, instruction, etc.).}
 Get the opcode of an instruction as an integer.}
 
 Low-level iteration functions are also available:
-@racket[LLVM-Get-First-Function] / @racket[LLVM-Get-Next-Function],
-@racket[LLVM-Get-First-Global] / @racket[LLVM-Get-Next-Global],
-@racket[LLVM-Get-First-Basic-Block] / @racket[LLVM-Get-Next-Basic-Block],
-@racket[LLVM-Get-First-Instruction] / @racket[LLVM-Get-Next-Instruction].
+@tt{LLVM-Get-First-Function} / @tt{LLVM-Get-Next-Function},
+@tt{LLVM-Get-First-Global} / @tt{LLVM-Get-Next-Global},
+@tt{LLVM-Get-First-Basic-Block} / @tt{LLVM-Get-Next-Basic-Block},
+@tt{LLVM-Get-First-Instruction} / @tt{LLVM-Get-Next-Instruction}.
 Each returns @racket[#f] at the end of the list.
 
 @; ---------------------------------------------------------------------------
