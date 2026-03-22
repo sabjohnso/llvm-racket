@@ -1259,6 +1259,79 @@ Look up a symbol by @racket[name] and return its address as a
 Cast the result to a callable function pointer with @racket[cast].}
 
 @; ---------------------------------------------------------------------------
+@subsection{Module Iteration}
+
+Walk the functions, globals, basic blocks, and instructions in a module.
+
+@defproc[(LLVM-Module-Functions [mod _LLVM-Module-Ref]) (listof _LLVM-Value-Ref)]{
+Return a list of all functions in @racket[mod].}
+
+@defproc[(LLVM-Module-Globals [mod _LLVM-Module-Ref]) (listof _LLVM-Value-Ref)]{
+Return a list of all global variables in @racket[mod].}
+
+@defproc[(LLVM-Function-Basic-Blocks [fn _LLVM-Value-Ref]) (listof _LLVM-Basic-Block-Ref)]{
+Return a list of all basic blocks in function @racket[fn].}
+
+@defproc[(LLVM-Basic-Block-Instructions [bb _LLVM-Basic-Block-Ref]) (listof _LLVM-Value-Ref)]{
+Return a list of all instructions in basic block @racket[bb].}
+
+@defproc[(LLVM-Get-Value-Name [val _LLVM-Value-Ref]) string?]{
+Get the name of a value (function, global, instruction, etc.).}
+
+@defproc[(LLVM-Get-Instruction-Opcode [inst _LLVM-Value-Ref]) exact-integer?]{
+Get the opcode of an instruction as an integer.}
+
+Low-level iteration functions are also available:
+@racket[LLVM-Get-First-Function] / @racket[LLVM-Get-Next-Function],
+@racket[LLVM-Get-First-Global] / @racket[LLVM-Get-Next-Global],
+@racket[LLVM-Get-First-Basic-Block] / @racket[LLVM-Get-Next-Basic-Block],
+@racket[LLVM-Get-First-Instruction] / @racket[LLVM-Get-Next-Instruction].
+Each returns @racket[#f] at the end of the list.
+
+@; ---------------------------------------------------------------------------
+@subsection{Optimization Remarks}
+
+Parse YAML-format optimization remarks emitted by LLVM passes.
+
+@defproc[(LLVM-Remark-Parser-Create-YAML [buf cpointer?] [size exact-nonnegative-integer?]) cpointer?]{
+Create a remark parser for YAML data.  GC-managed.}
+
+@defproc[(LLVM-Remark-Parser-Dispose [parser cpointer?]) void?]{
+Dispose of a remark parser.}
+
+@defproc[(LLVM-Remark-Parser-Get-Next [parser cpointer?]) (or/c cpointer? #f)]{
+Get the next remark entry, or @racket[#f] if done.  The entry must be
+freed with @racket[LLVM-Remark-Entry-Dispose].}
+
+@defproc[(LLVM-Remark-Parser-Has-Error [parser cpointer?]) boolean?]{
+Check if the parser encountered an error.}
+
+@defproc[(LLVM-Remark-Parser-Get-Error-Message [parser cpointer?]) string?]{
+Get the error message from the parser.}
+
+@defproc[(LLVM-Remark-Entry-Dispose [entry cpointer?]) void?]{
+Dispose of a remark entry.}
+
+@defproc[(LLVM-Remark-Entry-Get-Type [entry cpointer?]) exact-integer?]{
+Get the remark type (0=Unknown, 1=Passed, 2=Missed, 3=Analysis, etc.).}
+
+@defproc[(LLVM-Remark-Entry-Get-Pass-Name [entry cpointer?]) cpointer?]{
+Get the pass name as a remark string.  Use @racket[LLVM-Remark-String-Get-Data]
+to extract.}
+
+@defproc[(LLVM-Remark-Entry-Get-Remark-Name [entry cpointer?]) cpointer?]{
+Get the remark identifier as a remark string.}
+
+@defproc[(LLVM-Remark-Entry-Get-Function-Name [entry cpointer?]) cpointer?]{
+Get the function name as a remark string.}
+
+@defproc[(LLVM-Remark-String-Get-Data [str cpointer?]) string?]{
+Get the string data from a remark string reference.}
+
+@defproc[(LLVM-Remark-String-Get-Len [str cpointer?]) exact-nonnegative-integer?]{
+Get the length of a remark string.}
+
+@; ---------------------------------------------------------------------------
 @section{Resource Management}
 
 All LLVM resources allocated through this library are tracked by the
