@@ -1014,6 +1014,38 @@ used after this call.  Raises @racket[exn:fail] on error (e.g., conflicting
 symbol definitions).}
 
 @; ---------------------------------------------------------------------------
+@subsection{Object File Inspection}
+
+Inspect compiled object files (sections, symbols, relocations).
+
+@defproc[(LLVM-Create-Object-File [buf _LLVM-Memory-Buffer-Ref])
+         _LLVM-Object-File-Ref]{
+Create an object file from a memory buffer.  Consumes @racket[buf].
+Raises @racket[exn:fail] if the buffer is not a valid object file.
+GC-managed.}
+
+@defproc[(LLVM-Dispose-Object-File [obj _LLVM-Object-File-Ref]) void?]{
+Dispose of an object file.}
+
+@defproc[(LLVM-Object-File-Sections [obj _LLVM-Object-File-Ref])
+         (listof section-info?)]{
+Return a list of all sections in @racket[obj].  Each element is a
+@racket[section-info] struct with @racket[section-info-name],
+@racket[section-info-size], and @racket[section-info-address] fields.}
+
+@defproc[(LLVM-Object-File-Symbols [obj _LLVM-Object-File-Ref])
+         (listof symbol-info?)]{
+Return a list of all symbols in @racket[obj].  Each element is a
+@racket[symbol-info] struct with @racket[symbol-info-name],
+@racket[symbol-info-address], and @racket[symbol-info-size] fields.}
+
+Low-level iterator functions are also available for sections
+(@racket[LLVM-Get-Sections], @racket[LLVM-Move-To-Next-Section], etc.),
+symbols (@racket[LLVM-Get-Symbols], @racket[LLVM-Move-To-Next-Symbol], etc.),
+and relocations (@racket[LLVM-Get-Relocations],
+@racket[LLVM-Move-To-Next-Relocation], etc.).
+
+@; ---------------------------------------------------------------------------
 @subsection{ORC JIT}
 
 The ORC JIT is the modern replacement for MCJIT.  It supports

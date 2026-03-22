@@ -16,7 +16,8 @@
          "private/ffi/passes.rkt"
          "private/ffi/bitcode.rkt"
          "private/ffi/orc.rkt"
-         "private/ffi/linker.rkt")
+         "private/ffi/linker.rkt"
+         "private/ffi/object-file.rkt")
 
 (provide (all-from-out "private/ffi/lib.rkt")
          (all-from-out "private/ffi/types.rkt")
@@ -29,4 +30,5 @@
          (all-from-out "private/ffi/passes.rkt")
          (all-from-out "private/ffi/bitcode.rkt")
          (all-from-out "private/ffi/orc.rkt")
-         (all-from-out "private/ffi/linker.rkt"))
+         (all-from-out "private/ffi/linker.rkt")
+         (all-from-out "private/ffi/object-file.rkt"))

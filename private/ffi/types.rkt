@@ -21,6 +21,10 @@
          _LLVM-Orc-Thread-Safe-Context-Ref _LLVM-Orc-Thread-Safe-Context-Ref/null
          _LLVM-Orc-Thread-Safe-Module-Ref _LLVM-Orc-Thread-Safe-Module-Ref/null
          _LLVM-Orc-Execution-Session-Ref _LLVM-Orc-Execution-Session-Ref/null
+         _LLVM-Object-File-Ref _LLVM-Object-File-Ref/null
+         _LLVM-Section-Iterator-Ref _LLVM-Section-Iterator-Ref/null
+         _LLVM-Symbol-Iterator-Ref _LLVM-Symbol-Iterator-Ref/null
+         _LLVM-Relocation-Iterator-Ref _LLVM-Relocation-Iterator-Ref/null
          _LLVM-Bool)
 
 (define-cpointer-type _LLVM-Context-Ref)
@@ -43,5 +47,9 @@
 (define-cpointer-type _LLVM-Orc-Thread-Safe-Context-Ref)
 (define-cpointer-type _LLVM-Orc-Thread-Safe-Module-Ref)
 (define-cpointer-type _LLVM-Orc-Execution-Session-Ref)
+(define-cpointer-type _LLVM-Object-File-Ref)
+(define-cpointer-type _LLVM-Section-Iterator-Ref)
+(define-cpointer-type _LLVM-Symbol-Iterator-Ref)
+(define-cpointer-type _LLVM-Relocation-Iterator-Ref)
 
 (define _LLVM-Bool _int)
