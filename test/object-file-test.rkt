@@ -7,7 +7,8 @@
            llvm/private/ffi/analysis
            llvm/private/ffi/target
            llvm/private/ffi/target-machine
-           llvm/private/ffi/object-file)
+           llvm/private/ffi/object-file
+           llvm/private/ffi/bitcode)
 
   ;; Helper: build a simple add module and emit as object code buffer
   (define (build-object-buffer)
@@ -59,4 +60,28 @@
     (define names (map symbol-info-name symbols))
     (check-true (ormap (lambda (n) (and (string? n) (regexp-match? #rx"add" n)))
                        names)
-                "should contain 'add' symbol")))
+                "should contain 'add' symbol"))
+
+  (test-case "iterate relocations for each section"
+    (define buf (build-object-buffer))
+    (define obj (LLVM-Create-Object-File buf))
+
+    ;; Walk sections with low-level API and collect relocations
+    (define sec-iter (LLVM-Get-Sections obj))
+    (let loop ()
+      (unless (not (zero? (LLVM-Is-Section-Iterator-At-End obj sec-iter)))
+        (define relocs (LLVM-Section-Relocations sec-iter))
+        ;; Each relocation should be a relocation-info struct
+        (for ([r (in-list relocs)])
+          (check-true (exact-nonnegative-integer? (relocation-info-offset r)))
+          (check-true (exact-nonnegative-integer? (relocation-info-type r)))
+          (check-true (string? (relocation-info-type-name r))))
+        (LLVM-Move-To-Next-Section sec-iter)
+        (loop)))
+    (LLVM-Dispose-Section-Iterator sec-iter))
+
+  (test-case "invalid object file raises"
+    (define buf (LLVM-Create-Memory-Buffer-With-Memory-Range
+                 "not an object file" 18 "bad" 0))
+    (check-exn exn:fail?
+               (lambda () (LLVM-Create-Object-File buf)))))

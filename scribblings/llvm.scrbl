@@ -1039,6 +1039,14 @@ Return a list of all symbols in @racket[obj].  Each element is a
 @racket[symbol-info] struct with @racket[symbol-info-name],
 @racket[symbol-info-address], and @racket[symbol-info-size] fields.}
 
+@defproc[(LLVM-Section-Relocations [section-iter _LLVM-Section-Iterator-Ref])
+         (listof relocation-info?)]{
+Return a list of all relocations for the section at the current iterator
+position.  Each element is a @racket[relocation-info] struct with
+@racket[relocation-info-offset], @racket[relocation-info-type], and
+@racket[relocation-info-type-name] fields.  Use with the low-level
+section iterator API.}
+
 Low-level iterator functions are also available for sections
 (@racket[LLVM-Get-Sections], @racket[LLVM-Move-To-Next-Section], etc.),
 symbols (@racket[LLVM-Get-Symbols], @racket[LLVM-Move-To-Next-Symbol], etc.),

@@ -3,7 +3,8 @@
 (require ffi/unsafe
          ffi/unsafe/alloc
          "lib.rkt"
-         "types.rkt")
+         "types.rkt"
+         "utility.rkt")
 
 (provide ;; Object file
          LLVM-Create-Object-File
@@ -37,8 +38,14 @@
          ;; Racket-idiomatic helpers
          (struct-out section-info)
          (struct-out symbol-info)
+         (struct-out relocation-info)
          LLVM-Object-File-Sections
-         LLVM-Object-File-Symbols)
+         LLVM-Object-File-Symbols
+         LLVM-Section-Relocations)
+
+;; Cancel buffer finalizer — used when CreateObjectFile consumes it.
+(define cancel-memory-buffer-ownership!
+  ((deallocator) (lambda (_buf) (void))))
 
 ;; ---- Object File -----------------------------------------------------------
 
@@ -57,15 +64,19 @@
                (define result (wrapped buf))
                (unless result
                  (error 'LLVM-Create-Object-File "failed to create object file"))
+               ;; Buffer consumed — cancel its GC finalizer.
+               (cancel-memory-buffer-ownership! buf)
                result))))
 
 ;; ---- Section Iteration (low-level) ----------------------------------------
 
-(define-llvm LLVM-Get-Sections
-  (_fun _LLVM-Object-File-Ref -> _LLVM-Section-Iterator-Ref))
-
 (define-llvm LLVM-Dispose-Section-Iterator
-  (_fun _LLVM-Section-Iterator-Ref -> _void))
+  (_fun _LLVM-Section-Iterator-Ref -> _void)
+  #:wrap (deallocator))
+
+(define-llvm LLVM-Get-Sections
+  (_fun _LLVM-Object-File-Ref -> _LLVM-Section-Iterator-Ref)
+  #:wrap (allocator LLVM-Dispose-Section-Iterator))
 
 (define-llvm LLVM-Is-Section-Iterator-At-End
   (_fun _LLVM-Object-File-Ref _LLVM-Section-Iterator-Ref -> _LLVM-Bool))
@@ -73,7 +84,7 @@
 (define-llvm LLVM-Move-To-Next-Section
   (_fun _LLVM-Section-Iterator-Ref -> _void))
 
-;; May return #f for sections with no name.
+;; May return "" for sections with no name.
 (define-llvm LLVM-Get-Section-Name
   (_fun _LLVM-Section-Iterator-Ref -> _pointer)
   #:wrap (let ()
@@ -93,11 +104,13 @@
 
 ;; ---- Symbol Iteration (low-level) -----------------------------------------
 
-(define-llvm LLVM-Get-Symbols
-  (_fun _LLVM-Object-File-Ref -> _LLVM-Symbol-Iterator-Ref))
-
 (define-llvm LLVM-Dispose-Symbol-Iterator
-  (_fun _LLVM-Symbol-Iterator-Ref -> _void))
+  (_fun _LLVM-Symbol-Iterator-Ref -> _void)
+  #:wrap (deallocator))
+
+(define-llvm LLVM-Get-Symbols
+  (_fun _LLVM-Object-File-Ref -> _LLVM-Symbol-Iterator-Ref)
+  #:wrap (allocator LLVM-Dispose-Symbol-Iterator))
 
 (define-llvm LLVM-Is-Symbol-Iterator-At-End
   (_fun _LLVM-Object-File-Ref _LLVM-Symbol-Iterator-Ref -> _LLVM-Bool))
@@ -116,11 +129,13 @@
 
 ;; ---- Relocation Iteration (low-level) -------------------------------------
 
-(define-llvm LLVM-Get-Relocations
-  (_fun _LLVM-Section-Iterator-Ref -> _LLVM-Relocation-Iterator-Ref))
-
 (define-llvm LLVM-Dispose-Relocation-Iterator
-  (_fun _LLVM-Relocation-Iterator-Ref -> _void))
+  (_fun _LLVM-Relocation-Iterator-Ref -> _void)
+  #:wrap (deallocator))
+
+(define-llvm LLVM-Get-Relocations
+  (_fun _LLVM-Section-Iterator-Ref -> _LLVM-Relocation-Iterator-Ref)
+  #:wrap (allocator LLVM-Dispose-Relocation-Iterator))
 
 (define-llvm LLVM-Is-Relocation-Iterator-At-End
   (_fun _LLVM-Section-Iterator-Ref _LLVM-Relocation-Iterator-Ref -> _LLVM-Bool))
@@ -144,6 +159,7 @@
 
 (struct section-info (name size address) #:transparent)
 (struct symbol-info (name address size) #:transparent)
+(struct relocation-info (offset type type-name) #:transparent)
 
 ;; Collect all sections into a list of section-info structs.
 (define (LLVM-Object-File-Sections obj)
@@ -173,4 +189,20 @@
                                 (LLVM-Get-Symbol-Address iter)
                                 (LLVM-Get-Symbol-Size iter)))
        (LLVM-Move-To-Next-Symbol iter)
+       (loop (cons info acc))])))
+
+;; Collect all relocations for a section into a list of relocation-info structs.
+;; Must be called with a section iterator positioned at the desired section.
+(define (LLVM-Section-Relocations section-iter)
+  (define iter (LLVM-Get-Relocations section-iter))
+  (let loop ([acc '()])
+    (cond
+      [(not (zero? (LLVM-Is-Relocation-Iterator-At-End section-iter iter)))
+       (LLVM-Dispose-Relocation-Iterator iter)
+       (reverse acc)]
+      [else
+       (define info (relocation-info (LLVM-Get-Relocation-Offset iter)
+                                    (LLVM-Get-Relocation-Type iter)
+                                    (LLVM-Get-Relocation-Type-Name iter)))
+       (LLVM-Move-To-Next-Relocation iter)
        (loop (cons info acc))])))
