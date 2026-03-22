@@ -18,7 +18,8 @@
          "private/ffi/orc.rkt"
          "private/ffi/linker.rkt"
          "private/ffi/object-file.rkt"
-         "private/ffi/disassembler.rkt")
+         "private/ffi/disassembler.rkt"
+         "private/ffi/debug-info.rkt")
 
 (provide (all-from-out "private/ffi/lib.rkt")
          (all-from-out "private/ffi/types.rkt")
@@ -33,4 +34,5 @@
          (all-from-out "private/ffi/orc.rkt")
          (all-from-out "private/ffi/linker.rkt")
          (all-from-out "private/ffi/object-file.rkt")
-         (all-from-out "private/ffi/disassembler.rkt"))
+         (all-from-out "private/ffi/disassembler.rkt")
+         (all-from-out "private/ffi/debug-info.rkt"))

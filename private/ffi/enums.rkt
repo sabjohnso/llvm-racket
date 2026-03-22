@@ -10,7 +10,9 @@
          _LLVM-Int-Predicate
          _LLVM-Linkage
          _LLVM-Visibility
-         _LLVM-Real-Predicate)
+         _LLVM-Real-Predicate
+         _LLVM-DWARF-Source-Language
+         _LLVM-DWARF-Emission-Kind)
 
 (define _LLVM-Verifier-Failure-Action
   (_enum '(LLVMAbortProcessAction = 0
@@ -98,3 +100,40 @@
   (_enum '(LLVMDefaultVisibility = 0
            LLVMHiddenVisibility
            LLVMProtectedVisibility)))
+
+(define _LLVM-DWARF-Source-Language
+  (_enum '(LLVMDWARFSourceLanguageC89 = 0
+           LLVMDWARFSourceLanguageC
+           LLVMDWARFSourceLanguageAda83
+           LLVMDWARFSourceLanguageC_plus_plus
+           LLVMDWARFSourceLanguageCobol74
+           LLVMDWARFSourceLanguageCobol85
+           LLVMDWARFSourceLanguageFortran77
+           LLVMDWARFSourceLanguageFortran90
+           LLVMDWARFSourceLanguagePascal83
+           LLVMDWARFSourceLanguageModula2
+           LLVMDWARFSourceLanguageJava
+           LLVMDWARFSourceLanguageC99
+           LLVMDWARFSourceLanguageAda95
+           LLVMDWARFSourceLanguageFortran95
+           LLVMDWARFSourceLanguagePLI
+           LLVMDWARFSourceLanguageObjC
+           LLVMDWARFSourceLanguageObjC_plus_plus
+           LLVMDWARFSourceLanguageUPC
+           LLVMDWARFSourceLanguageD
+           LLVMDWARFSourceLanguagePython
+           LLVMDWARFSourceLanguageOpenCL
+           LLVMDWARFSourceLanguageGo
+           LLVMDWARFSourceLanguageModula3
+           LLVMDWARFSourceLanguageHaskell
+           LLVMDWARFSourceLanguageC_plus_plus_03
+           LLVMDWARFSourceLanguageC_plus_plus_11
+           LLVMDWARFSourceLanguageOCaml
+           LLVMDWARFSourceLanguageRust
+           LLVMDWARFSourceLanguageC11
+           LLVMDWARFSourceLanguageSwift)))
+
+(define _LLVM-DWARF-Emission-Kind
+  (_enum '(LLVMDWARFEmissionNone = 0
+           LLVMDWARFEmissionFull
+           LLVMDWARFEmissionLineTablesOnly)))

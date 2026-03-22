@@ -25,6 +25,8 @@
          _LLVM-Section-Iterator-Ref _LLVM-Section-Iterator-Ref/null
          _LLVM-Symbol-Iterator-Ref _LLVM-Symbol-Iterator-Ref/null
          _LLVM-Relocation-Iterator-Ref _LLVM-Relocation-Iterator-Ref/null
+         _LLVM-DI-Builder-Ref _LLVM-DI-Builder-Ref/null
+         _LLVM-Metadata-Ref _LLVM-Metadata-Ref/null
          _LLVM-Bool)
 
 (define-cpointer-type _LLVM-Context-Ref)
@@ -51,5 +53,8 @@
 (define-cpointer-type _LLVM-Section-Iterator-Ref)
 (define-cpointer-type _LLVM-Symbol-Iterator-Ref)
 (define-cpointer-type _LLVM-Relocation-Iterator-Ref)
+
+(define-cpointer-type _LLVM-DI-Builder-Ref)
+(define-cpointer-type _LLVM-Metadata-Ref)
 
 (define _LLVM-Bool _int)

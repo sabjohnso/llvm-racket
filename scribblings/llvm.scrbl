@@ -1055,6 +1055,111 @@ and relocations (@racket[LLVM-Get-Relocations],
 @racket[LLVM-Move-To-Next-Relocation], etc.).
 
 @; ---------------------------------------------------------------------------
+@subsection{Debug Info (DIBuilder)}
+
+Emit DWARF debug information metadata into LLVM IR.
+
+@defproc[(LLVM-Create-DI-Builder [mod _LLVM-Module-Ref]) _LLVM-DI-Builder-Ref]{
+Create a debug info builder for @racket[mod].  GC-managed.  Call
+@racket[LLVM-DI-Builder-Finalize] before disposing.}
+
+@defproc[(LLVM-Dispose-DI-Builder [dib _LLVM-DI-Builder-Ref]) void?]{
+Dispose of a debug info builder.}
+
+@defproc[(LLVM-DI-Builder-Finalize [dib _LLVM-DI-Builder-Ref]) void?]{
+Finalize all debug info.  Must be called before the module is emitted
+or verified with debug info.}
+
+@defproc[(LLVM-DI-Builder-Create-File
+           [dib _LLVM-DI-Builder-Ref]
+           [filename string?]
+           [directory string?])
+         _LLVM-Metadata-Ref]{
+Create a file descriptor for debug info.}
+
+@defproc[(LLVM-DI-Builder-Create-Compile-Unit
+           [dib _LLVM-DI-Builder-Ref]
+           [lang _LLVM-DWARF-Source-Language]
+           [file _LLVM-Metadata-Ref]
+           [producer string?]
+           [is-optimized _LLVM-Bool]
+           [flags string?]
+           [runtime-ver exact-nonnegative-integer?]
+           [split-name string?]
+           [emission-kind _LLVM-DWARF-Emission-Kind]
+           [dwo-id exact-nonnegative-integer?]
+           [split-debug-inlining _LLVM-Bool]
+           [debug-info-for-profiling _LLVM-Bool])
+         _LLVM-Metadata-Ref]{
+Create a compile unit.  This is the root of the debug info hierarchy.}
+
+@defproc[(LLVM-DI-Builder-Create-Function
+           [dib _LLVM-DI-Builder-Ref]
+           [scope _LLVM-Metadata-Ref]
+           [name string?]
+           [linkage-name string?]
+           [file _LLVM-Metadata-Ref]
+           [line exact-nonnegative-integer?]
+           [type _LLVM-Metadata-Ref]
+           [is-local _LLVM-Bool]
+           [is-definition _LLVM-Bool]
+           [scope-line exact-nonnegative-integer?]
+           [flags exact-nonnegative-integer?]
+           [is-optimized _LLVM-Bool])
+         _LLVM-Metadata-Ref]{
+Create debug info for a function (subprogram).  Attach to the IR
+function with @racket[LLVM-Set-Subprogram].}
+
+@defproc[(LLVM-DI-Builder-Create-Lexical-Block
+           [dib _LLVM-DI-Builder-Ref]
+           [scope _LLVM-Metadata-Ref]
+           [file _LLVM-Metadata-Ref]
+           [line exact-nonnegative-integer?]
+           [column exact-nonnegative-integer?])
+         _LLVM-Metadata-Ref]{
+Create a lexical block scope for debug info.}
+
+@defproc[(LLVM-DI-Builder-Create-Basic-Type
+           [dib _LLVM-DI-Builder-Ref]
+           [name string?]
+           [size-in-bits exact-nonnegative-integer?]
+           [encoding exact-nonnegative-integer?]
+           [flags exact-nonnegative-integer?])
+         _LLVM-Metadata-Ref]{
+Create debug info for a basic type.  Common encodings: 5 (signed),
+7 (unsigned), 4 (float).}
+
+@defproc[(LLVM-DI-Builder-Create-Subroutine-Type
+           [dib _LLVM-DI-Builder-Ref]
+           [file _LLVM-Metadata-Ref]
+           [param-types (listof _LLVM-Metadata-Ref)]
+           [num-params exact-nonnegative-integer?]
+           [flags exact-nonnegative-integer?])
+         _LLVM-Metadata-Ref]{
+Create debug info for a function type.  The first element of
+@racket[param-types] is the return type.}
+
+@defproc[(LLVM-DI-Builder-Create-Debug-Location
+           [ctx _LLVM-Context-Ref]
+           [line exact-nonnegative-integer?]
+           [column exact-nonnegative-integer?]
+           [scope _LLVM-Metadata-Ref]
+           [inlined-at (or/c _LLVM-Metadata-Ref #f)])
+         _LLVM-Metadata-Ref]{
+Create a debug source location.  Pass @racket[#f] for @racket[inlined-at]
+if not inlined.}
+
+@defproc[(LLVM-Set-Subprogram [fn _LLVM-Value-Ref] [sp _LLVM-Metadata-Ref]) void?]{
+Attach a subprogram (function debug info) to an IR function.}
+
+@defproc[(LLVM-Set-Current-Debug-Location2
+           [builder _LLVM-Builder-Ref]
+           [loc _LLVM-Metadata-Ref])
+         void?]{
+Set the current debug location on the builder.  All subsequent
+instructions will be annotated with this location.}
+
+@; ---------------------------------------------------------------------------
 @subsection{Disassembler}
 
 Disassemble machine code bytes to assembly text.
