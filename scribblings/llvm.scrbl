@@ -1125,7 +1125,12 @@ Individual passes: @racket["mem2reg"], @racket["instcombine"],
 @racket["gvn"], @racket["simplifycfg"].
 Combine with commas: @racket["mem2reg,instcombine,gvn"].}
 
-@subsubsection{Legacy Pass Manager}
+@subsubsection{Legacy Pass Manager (Deprecated)}
+
+@bold{Deprecated.}  The legacy pass manager and its transform passes are
+deprecated as of LLVM 14 and are being removed in newer LLVM versions.
+Use the new pass manager (@racket[LLVM-Run-Passes]) instead.  These
+bindings are provided for compatibility with LLVM 15 and earlier.
 
 @defproc[(LLVM-Create-Pass-Manager) _LLVM-Pass-Manager-Ref]{
 Create a module-level pass manager.  GC-managed.}
@@ -1156,9 +1161,11 @@ Run function passes on @racket[fn].  Returns non-zero if the function was modifi
 @defproc[(LLVM-Finalize-Function-Pass-Manager [fpm _LLVM-Pass-Manager-Ref]) _LLVM-Bool]{
 Finalize function pass manager after running passes.}
 
-@subsubsection{Legacy Transform Passes}
+@subsubsection{Legacy Transform Passes (Deprecated)}
 
 These add individual optimization passes to a legacy pass manager.
+Prefer using @racket[LLVM-Run-Passes] with pass name strings
+(e.g., @racket["instcombine"], @racket["gvn"], @racket["mem2reg"]).
 
 @defproc[(LLVM-Add-Instruction-Combining-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add instruction combining.}
 @defproc[(LLVM-Add-Reassociate-Pass [pm _LLVM-Pass-Manager-Ref]) void?]{Add expression reassociation.}
