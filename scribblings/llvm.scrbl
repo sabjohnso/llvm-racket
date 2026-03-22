@@ -726,6 +726,7 @@ Equivalent to the C @tt{LLVMInitializeNativeTarget} inline function.}
 @defproc[(LLVM-Initialize-X86-Target-MC) void?]{Initialize X86 target MC layer.}
 @defproc[(LLVM-Initialize-X86-Asm-Printer) void?]{Initialize X86 assembly printer.}
 @defproc[(LLVM-Initialize-X86-Asm-Parser) void?]{Initialize X86 assembly parser.}
+@defproc[(LLVM-Initialize-X86-Disassembler) void?]{Initialize X86 disassembler.}
 
 @; ---------------------------------------------------------------------------
 @subsection{Target Machine}
@@ -1052,6 +1053,37 @@ Low-level iterator functions are also available for sections
 symbols (@racket[LLVM-Get-Symbols], @racket[LLVM-Move-To-Next-Symbol], etc.),
 and relocations (@racket[LLVM-Get-Relocations],
 @racket[LLVM-Move-To-Next-Relocation], etc.).
+
+@; ---------------------------------------------------------------------------
+@subsection{Disassembler}
+
+Disassemble machine code bytes to assembly text.
+
+@defproc[(LLVM-Create-Disasm [triple string?]) cpointer?]{
+Create a disassembler for the given target triple.  Uses the "generic"
+CPU.  Raises @racket[exn:fail] if the target is not supported.
+GC-managed.  Requires @racket[Initialize-Native-Target!] to have been
+called.}
+
+@defproc[(LLVM-Disasm-Dispose [dc cpointer?]) void?]{
+Dispose of a disassembler context.}
+
+@defproc[(LLVM-Disasm-Instruction
+           [dc cpointer?]
+           [bytes (or/c bytes? cpointer?)]
+           [size exact-nonnegative-integer?]
+           [pc exact-nonnegative-integer?])
+         (or/c string? #f)]{
+Disassemble one instruction from @racket[bytes].  Returns the assembly
+text on success, or @racket[#f] if the bytes couldn't be decoded.
+@racket[pc] is the virtual address used for PC-relative calculations.}
+
+@defproc[(LLVM-Set-Disasm-Options
+           [dc cpointer?]
+           [options exact-nonnegative-integer?])
+         void?]{
+Set disassembler options.  Common values: @racket[1] (markup),
+@racket[2] (print immediates as hex), @racket[4] (print latency).}
 
 @; ---------------------------------------------------------------------------
 @subsection{ORC JIT}
