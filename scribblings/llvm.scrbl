@@ -1012,7 +1012,11 @@ Emit @racket[mod] as assembly or object code to @racket[filename].
 Raises @racket[exn:fail] on error.}
 
 @; ---------------------------------------------------------------------------
-@subsection{Execution Engine (MCJIT)}
+@subsection{Execution Engine (MCJIT --- Deprecated)}
+
+@bold{Deprecated.}  MCJIT is the legacy JIT engine.  It compiles an
+entire module at once and does not support incremental compilation.
+Use the ORC JIT (LLJIT) instead for new code.
 
 @defproc[(LLVM-Link-In-MCJIT) void?]{
 Link in the MCJIT engine. Must be called once before creating an MCJIT
