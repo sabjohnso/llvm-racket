@@ -1002,6 +1002,18 @@ Set the data layout string for @racket[mod].}
 Get the data layout string of @racket[mod].}
 
 @; ---------------------------------------------------------------------------
+@subsection{Linker}
+
+@defproc[(LLVM-Link-Modules2
+           [dest _LLVM-Module-Ref]
+           [src _LLVM-Module-Ref])
+         void?]{
+Link @racket[src] into @racket[dest].  All definitions from @racket[src]
+are merged into @racket[dest].  @racket[src] is consumed and must not be
+used after this call.  Raises @racket[exn:fail] on error (e.g., conflicting
+symbol definitions).}
+
+@; ---------------------------------------------------------------------------
 @subsection{ORC JIT}
 
 The ORC JIT is the modern replacement for MCJIT.  It supports
