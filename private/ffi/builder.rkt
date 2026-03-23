@@ -68,7 +68,9 @@
          LLVM-Build-GEP2
          ;; Terminators
          LLVM-Build-Ret
-         LLVM-Build-Ret-Void)
+         LLVM-Build-Ret-Void
+         ;; Builder state
+         LLVM-Get-Insert-Block)
 
 ;; ---- Functions -------------------------------------------------------------
 ;; Handles into the module.  Anchor result → module.
@@ -270,3 +272,8 @@
 (define-llvm LLVM-Build-Ret-Void
   (_fun _LLVM-Builder-Ref -> _LLVM-Value-Ref)
   #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; ---- Builder State ---------------------------------------------------------
+
+(define-llvm LLVM-Get-Insert-Block
+  (_fun _LLVM-Builder-Ref -> _LLVM-Basic-Block-Ref))
