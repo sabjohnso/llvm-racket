@@ -2,6 +2,7 @@
 
 (provide ;; Type system
          ir-type?
+         prim-type? prim-type-tag
          ;; Primitive types
          i1 i8 i16 i32 i64 f32 f64 void-type
          ;; Compound types
