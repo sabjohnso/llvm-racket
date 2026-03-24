@@ -24,7 +24,7 @@
 
 ;; ---- make-llvm-module ------------------------------------------------------
 
-(define (make-llvm-module . decls)
+(define (make-llvm-module #:optimize [optimize "default<O2>"] . decls)
   (Initialize-Native-Target!)
 
   ;; Compile to LLVM IR
@@ -33,7 +33,7 @@
   (define ctx (compiled-module-context cm))
   (define ir (compiled-module-ir cm))
 
-  ;; Optimize
+  ;; Optimize (unless #f)
   (define triple-ptr (LLVM-Get-Default-Target-Triple))
   (define triple (cast triple-ptr _pointer _string))
   (LLVM-Dispose-Message triple-ptr)
@@ -43,8 +43,9 @@
               'LLVMCodeGenLevelDefault
               'LLVMRelocDefault
               'LLVMCodeModelDefault))
-  (define popts (LLVM-Create-Pass-Builder-Options))
-  (LLVM-Run-Passes llvm-mod "default<O2>" tm popts)
+  (when optimize
+    (define popts (LLVM-Create-Pass-Builder-Options))
+    (LLVM-Run-Passes llvm-mod optimize tm popts))
 
   ;; Create a fresh JIT per module to avoid symbol conflicts
   (define jit (LLVM-Orc-Create-LLJIT #f))

@@ -57,4 +57,18 @@
                (func 'add (formals (variable 'a i32) (variable 'b i32))
                           (body ((op '+) (ref 'a) (ref 'b))))))
     (check-exn exn:fail?
-               (lambda () (call m 'nonexistent 1 2)))))
+               (lambda () (call m 'nonexistent 1 2))))
+
+  (test-case "configurable optimization level"
+    (define m (make-llvm-module
+               #:optimize "default<O3>"
+               (func 'add (formals (variable 'a i32) (variable 'b i32))
+                          (body ((op '+) (ref 'a) (ref 'b))))))
+    (check-equal? (call m 'add 3 4) 7))
+
+  (test-case "optimization disabled"
+    (define m (make-llvm-module
+               #:optimize #f
+               (func 'add (formals (variable 'a i32) (variable 'b i32))
+                          (body ((op '+) (ref 'a) (ref 'b))))))
+    (check-equal? (call m 'add 3 4) 7)))
