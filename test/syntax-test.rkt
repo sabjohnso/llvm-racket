@@ -50,4 +50,41 @@
       (: get-x (-> Float64 Float64 Float64))
       (define (get-x a b)
         (Point-x (Point a b))))
-    (check-= (call m 'get-x 3.0 4.0) 3.0 0.0)))
+    (check-= (call m 'get-x 3.0 4.0) 3.0 0.0))
+
+  (test-case "macro: union and match"
+    (define-llvm-module m
+      (union Opt-Int
+        [Some ([value : Int32])]
+        [None])
+      (: unwrap (-> Int32 Int32))
+      (define (unwrap x)
+        (match (Some x)
+          [(Some v) v]
+          [(None) 0])))
+    (check-equal? (call m 'unwrap 42) 42)
+    (check-equal? (call m 'unwrap 0) 0))
+
+  (test-case "macro: match None variant"
+    (define-llvm-module m
+      (union Opt-Int
+        [Some ([value : Int32])]
+        [None])
+      (: test-none (-> Int32))
+      (define (test-none)
+        (match (None)
+          [(Some v) 1]
+          [(None) 0])))
+    (check-equal? (call m 'test-none) 0))
+
+  (test-case "macro: union with computation in match body"
+    (define-llvm-module m
+      (union Opt-Int
+        [Some ([value : Int32])]
+        [None])
+      (: double-or-zero (-> Int32 Int32))
+      (define (double-or-zero x)
+        (match (Some x)
+          [(Some v) (+ v v)]
+          [(None) 0])))
+    (check-equal? (call m 'double-or-zero 21) 42)))

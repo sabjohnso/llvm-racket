@@ -44,9 +44,11 @@
   ;; Returns a list of syntax objects for make-llvm-module arguments.
   (define (process-module-body forms)
     (let loop ([remaining forms]
-               [type-env '()]  ; ((name . (param-types ret-type)) ...)
+               [type-env '()]      ; ((name param-types ret-type) ...)
                [decls '()]
-               [rec-names '()])  ; known record type names
+               [rec-names '()]     ; known record type names
+               [variant-names '()] ; known variant constructor names
+               [union-names '()])  ; known union type names
       (cond
         [(null? remaining) (reverse decls)]
 
@@ -61,8 +63,7 @@
                    [fn-name (syntax-e #'name)])
               (loop (cdr remaining)
                     (cons (list fn-name param-types ret-type) type-env)
-                    decls
-                    rec-names))])]
+                    decls rec-names variant-names union-names))])]
 
         ;; Record definition: (define-record Name ([field : Type] ...))
         [(syntax-case (car remaining) (define-record)
@@ -80,7 +81,8 @@
                    [decl #`(rec '#,rname #,@fields)])
               (loop (cdr remaining) type-env
                     (cons decl decls)
-                    (cons rname rec-names)))])]
+                    (cons rname rec-names)
+                    variant-names union-names))])]
 
         ;; Function definition: (define (name args ...) body ...)
         [(syntax-case (car remaining) (define)
@@ -102,50 +104,76 @@
                                        arg-names param-types))]
                    [body-stx (transform-body
                               (syntax->list #'(body-expr ...))
-                              type-env rec-names)]
+                              type-env rec-names variant-names)]
                    [decl #`(func '#,fn-name #,formals-stx (body #,@body-stx))])
               (loop (cdr remaining) type-env
                     (cons decl decls)
-                    rec-names))])]
+                    rec-names variant-names union-names))])]
+
+        ;; Union definition: (union Name [Variant ([field : Type] ...)] ...)
+        [(syntax-case (car remaining) (union)
+           [(union name clause ...) #t]
+           [_ #f])
+         (syntax-case (car remaining) (union :)
+           [(union name clause ...)
+            (let* ([uname (syntax-e #'name)]
+                   [clauses (syntax->list #'(clause ...))]
+                   [variants
+                    (map (lambda (c)
+                           (syntax-case c (:)
+                             [[vname ([fname : ftype] ...)]
+                              (let ([vn (syntax-e #'vname)]
+                                    [flds (map (lambda (fn ft)
+                                                 #`(field '#,(syntax-e fn)
+                                                          #,(type-name->repr ft)))
+                                               (syntax->list #'(fname ...))
+                                               (syntax->list #'(ftype ...)))])
+                                (cons vn #`(variant '#,vn #,@flds)))]
+                             [[vname]
+                              (cons (syntax-e #'vname)
+                                    #`(variant '#,(syntax-e #'vname)))]))
+                         clauses)]
+                   [new-variant-names (append (map car variants) variant-names)]
+                   [decl #`(sum '#,uname #,@(map cdr variants))])
+              (loop (cdr remaining) type-env
+                    (cons decl decls)
+                    rec-names new-variant-names
+                    (cons uname union-names)))])]
 
         [else
          (raise-syntax-error 'define-llvm-module
                              "unexpected form" (car remaining))])))
 
   ;; Transform a list of body expressions to runtime API calls.
-  (define (transform-body exprs type-env rec-names)
-    (map (lambda (e) (transform-expr e type-env rec-names)) exprs))
+  (define (transform-body exprs type-env rec-names variant-names)
+    (map (lambda (e) (transform-expr e type-env rec-names variant-names)) exprs))
+
+  ;; Shorthand for recursive transform.
+  (define (tx e te rn vn)
+    (transform-expr e te rn vn))
+  (define (tx* es te rn vn)
+    (map (lambda (e) (tx e te rn vn)) es))
 
   ;; Transform a single expression.
-  (define (transform-expr stx type-env rec-names)
-    (syntax-case stx (if let)
+  (define (transform-expr stx type-env rec-names variant-names)
+    (define (tx1 e) (tx e type-env rec-names variant-names))
+    (define (tx1* es) (tx* es type-env rec-names variant-names))
+    (syntax-case stx (if let match)
       ;; Literal integer
-      [val
-       (exact-integer? (syntax-e #'val))
+      [val (exact-integer? (syntax-e #'val))
        #`(lit #,(syntax-e #'val) i32)]
 
       ;; Literal float
-      [val
-       (flonum? (syntax-e #'val))
+      [val (flonum? (syntax-e #'val))
        #`(lit #,(syntax-e #'val) f64)]
 
-      ;; Variable reference (symbol)
-      [name
-       (identifier? #'name)
-       (let ([sym (syntax-e #'name)])
-         ;; Check if it's a known function — if so, it's a ref
-         ;; Check if it's a record constructor or field accessor
-         (cond
-           [(assq sym type-env) #`(ref '#,sym)]
-           [(memq sym rec-names) #`(ref '#,sym)]  ; shouldn't happen
-           [else #`(ref '#,sym)]))]
+      ;; Variable reference (bare identifier)
+      [name (identifier? #'name)
+       #`(ref '#,(syntax-e #'name))]
 
       ;; If expression
-      [(if cond-expr then-expr else-expr)
-       (let ([cond-stx (transform-expr #'cond-expr type-env rec-names)]
-             [then-stx (transform-expr #'then-expr type-env rec-names)]
-             [else-stx (transform-expr #'else-expr type-env rec-names)])
-         #`(if-form #,cond-stx #,then-stx #,else-stx))]
+      [(if c t e)
+       #`(if-form #,(tx1 #'c) #,(tx1 #'t) #,(tx1 #'e))]
 
       ;; Named let
       [(let loop-name ([var : type init] ...) body-expr ...)
@@ -157,39 +185,65 @@
               [binds (map (lambda (v t i)
                             #`(bind (variable '#,(syntax-e v)
                                               #,(type-name->repr t))
-                                    #,(transform-expr i type-env rec-names)))
+                                    #,(tx1 i)))
                           vars types inits)]
-              [body-stxs (transform-body bodies type-env rec-names)])
+              [body-stxs (transform-body bodies type-env rec-names variant-names)])
          #`(named-bindings '#,(syntax-e #'loop-name)
                            (list #,@binds)
                            (body #,@body-stxs)))]
 
-      ;; Arithmetic operators: (+ a b), (- a b), (* a b), (/ a b)
+      ;; Match expression: (match expr [(Variant args ...) body ...] ...)
+      [(match scrutinee-expr clause ...)
+       (let* ([scrut (tx1 #'scrutinee-expr)]
+              [cases
+               (map (lambda (c)
+                      (syntax-case c ()
+                        [[(vname pat-args ...) case-body ...]
+                         (let* ([vn (syntax-e #'vname)]
+                                [pat-bindings
+                                 (map (lambda (pa)
+                                        ;; Pattern arg is just a variable name.
+                                        ;; We need a type — for now use i32 as default.
+                                        ;; TODO: look up from variant definition.
+                                        #`(variable '#,(syntax-e pa) i32))
+                                      (syntax->list #'(pat-args ...)))]
+                                [case-bodies
+                                 (transform-body (syntax->list #'(case-body ...))
+                                                 type-env rec-names variant-names)])
+                           #`(match-case (ctor-pat '#,vn #,@pat-bindings)
+                                         (body #,@case-bodies)))]
+                        [[(vname) case-body ...]
+                         (let ([case-bodies
+                                (transform-body (syntax->list #'(case-body ...))
+                                                type-env rec-names variant-names)])
+                           #`(match-case (ctor-pat '#,(syntax-e #'vname))
+                                         (body #,@case-bodies)))]))
+                    (syntax->list #'(clause ...)))])
+         #`(match-variant #,scrut #,@cases))]
+
+      ;; Arithmetic operators
       [(op-id args ...)
        (and (identifier? #'op-id) (op-sym? (syntax-e #'op-id)))
-       (let ([sym (syntax-e #'op-id)]
-             [arg-stxs (map (lambda (a) (transform-expr a type-env rec-names))
-                            (syntax->list #'(args ...)))])
-         #`((op '#,sym) #,@arg-stxs))]
+       #`((op '#,(syntax-e #'op-id)) #,@(tx1* (syntax->list #'(args ...))))]
 
-      ;; Comparison operators: (<= a b), (> a b), etc.
+      ;; Comparison operators
       [(cmp-id args ...)
        (and (identifier? #'cmp-id) (cmp-sym? (syntax-e #'cmp-id)))
-       (let ([sym (syntax-e #'cmp-id)]
-             [arg-stxs (map (lambda (a) (transform-expr a type-env rec-names))
-                            (syntax->list #'(args ...)))])
-         ;; Use icmp for now — we'd need type info to dispatch fcmp
-         #`((icmp '#,sym) #,@arg-stxs))]
+       #`((icmp '#,(syntax-e #'cmp-id)) #,@(tx1* (syntax->list #'(args ...))))]
 
-      ;; Record constructor: (Point a b) where Point is a known record name
+      ;; Record constructor: (Point a b)
       [(ctor-name args ...)
        (and (identifier? #'ctor-name)
             (memq (syntax-e #'ctor-name) rec-names))
-       (let ([arg-stxs (map (lambda (a) (transform-expr a type-env rec-names))
-                            (syntax->list #'(args ...)))])
-         #`(rec-new '#,(syntax-e #'ctor-name) #,@arg-stxs))]
+       #`(rec-new '#,(syntax-e #'ctor-name) #,@(tx1* (syntax->list #'(args ...))))]
 
-      ;; Record field accessor: (Point-x expr) where Point is known
+      ;; Variant constructor: (Some x) or (None)
+      [(vname args ...)
+       (and (identifier? #'vname)
+            (memq (syntax-e #'vname) variant-names))
+       #`(ctor '#,(syntax-e #'vname) #,@(tx1* (syntax->list #'(args ...))))]
+
+      ;; Record field accessor: (Point-x expr)
       [(accessor-id arg)
        (and (identifier? #'accessor-id)
             (let* ([s (symbol->string (syntax-e #'accessor-id))]
@@ -199,16 +253,13 @@
        (let* ([s (symbol->string (syntax-e #'accessor-id))]
               [parts (regexp-match #rx"^(.+)-(.+)$" s)]
               [type-name (string->symbol (second parts))]
-              [field-name (string->symbol (third parts))]
-              [arg-stx (transform-expr #'arg type-env rec-names)])
-         #`(field-ref #,arg-stx '#,type-name '#,field-name))]
+              [field-name (string->symbol (third parts))])
+         #`(field-ref #,(tx1 #'arg) '#,type-name '#,field-name))]
 
       ;; Function application: (name args ...)
       [(fn-id args ...)
        (identifier? #'fn-id)
-       (let ([arg-stxs (map (lambda (a) (transform-expr a type-env rec-names))
-                            (syntax->list #'(args ...)))])
-         #`(app (ref '#,(syntax-e #'fn-id)) #,@arg-stxs))]
+       #`(app (ref '#,(syntax-e #'fn-id)) #,@(tx1* (syntax->list #'(args ...))))]
 
       [other
        (raise-syntax-error 'define-llvm-module
