@@ -21,6 +21,8 @@
          icmp icmp-app? icmp-app-predicate icmp-app-args
          fcmp fcmp-app? fcmp-app-predicate fcmp-app-args
          app app? app-callee app-args
+         rec-new rec-new? rec-new-type-name rec-new-args
+         field-ref field-ref? field-ref-expr field-ref-type-name field-ref-field-name
          ctor ctor? ctor-variant-name ctor-args
          if-form if-form? if-form-condition if-form-then if-form-else
          cond-form cond-form? cond-form-clauses cond-form-else
@@ -104,6 +106,16 @@
 
 (define (fcmp pred)
   (lambda args (fcmp-app pred args)))
+
+;; Record construction: (rec-new 'Point expr1 expr2)
+(struct %rec-new (type-name args) #:transparent)
+(define (rec-new type-name . args) (%rec-new type-name args))
+(define (rec-new? v)               (%rec-new? v))
+(define (rec-new-type-name v)      (%rec-new-type-name v))
+(define (rec-new-args v)           (%rec-new-args v))
+
+;; Record field access: (field-ref expr 'Point 'x)
+(struct field-ref (expr type-name field-name) #:transparent)
 
 (struct %app (callee args) #:transparent)
 

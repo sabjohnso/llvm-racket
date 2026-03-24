@@ -32,8 +32,11 @@
 (define current-func-types (make-parameter #f)) ; hash: symbol → llvm-func-type
 (define current-func-env  (make-parameter #f))  ; alist: (name . (param-types ret-type))
 (define current-loops     (make-parameter #f))  ; hash: symbol → loop-info
+(define current-rec-types (make-parameter #f))  ; hash: symbol → rec-info
 
 (struct loop-info (header-bb phi-nodes bind-vars) #:transparent)
+(struct rec-type-info (llvm-type fields) #:transparent)
+;; fields: list of (field-name . ir-type)
 
 ;; ---- Top-level entry point -------------------------------------------------
 
@@ -43,6 +46,21 @@
   (define llvm-mod (LLVM-Module-Create-With-Name-In-Context "safe-module" ctx))
 
   (define funcs (filter func? decls))
+  (define recs  (filter rec? decls))
+
+  ;; Compile record type declarations
+  (define rec-types (make-hash))
+  (for ([r (in-list recs)])
+    (define fields (rec-fields r))
+    (define llvm-field-types
+      (for/list ([f (in-list fields)])
+        (type->llvm (field-type f) ctx)))
+    (define llvm-struct (LLVM-Struct-Create-Named ctx (symbol->string (rec-name r))))
+    (LLVM-Struct-Set-Body llvm-struct llvm-field-types (length llvm-field-types) 0)
+    (hash-set! rec-types (rec-name r)
+               (rec-type-info llvm-struct
+                              (for/list ([f (in-list fields)])
+                                (cons (field-name f) (field-type f))))))
 
   ;; Build func-env incrementally: validate each function, accumulating
   ;; the env with known return types so later functions can call earlier ones.
@@ -93,7 +111,8 @@
                    [current-funcs llvm-funcs]
                    [current-func-types llvm-func-types]
                    [current-func-env func-env]
-                   [current-loops (make-hash)])
+                   [current-loops (make-hash)]
+                   [current-rec-types rec-types])
       (define result (emit-body (func-body f)))
       (LLVM-Build-Ret bld result)))
 
@@ -162,6 +181,8 @@
     [(fcmp-app? expr)        (emit-fcmp expr)]
     [(if-form? expr)         (emit-if expr)]
     [(named-bindings? expr)  (emit-named-bindings expr)]
+    [(rec-new? expr)         (emit-rec-new expr)]
+    [(field-ref? expr)       (emit-field-ref expr)]
     [(app? expr)             (emit-app expr)]
     [(body? expr)            (emit-body expr)]
     [else (error 'compile "unsupported: ~a" expr)]))
@@ -187,6 +208,13 @@
     [(op-app? expr)
      (and (pair? (op-app-args expr))
           (expr-is-float? (car (op-app-args expr))))]
+    [(field-ref? expr)
+     ;; Look up the field's declared type
+     (define info (hash-ref (current-rec-types) (field-ref-type-name expr) #f))
+     (and info
+          (let ([fields (rec-type-info-fields info)])
+            (define f (assq (field-ref-field-name expr) fields))
+            (and f (prim-type? (cdr f)) (memq (prim-type-tag (cdr f)) '(f32 f64)))))]
     [else #f]))
 
 (define (emit-op expr)
@@ -377,3 +405,58 @@
      (define ft (hash-ref (current-func-types) name))
      (define args (for/list ([a (in-list (app-args expr))]) (emit-expr a)))
      (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")]))
+
+;; ---- Record construction and field access ----------------------------------
+
+(define (emit-rec-new expr)
+  (define b (bld)) (define c (ctx))
+  (define type-name (rec-new-type-name expr))
+  (define info (hash-ref (current-rec-types) type-name
+                         (lambda () (error 'compile "unknown record type: ~a" type-name))))
+  (define llvm-struct-type (rec-type-info-llvm-type info))
+
+  ;; Alloca the struct on the stack
+  (define ptr (LLVM-Build-Alloca b llvm-struct-type ""))
+
+  ;; Store each field value via GEP
+  (define field-vals (map emit-expr (rec-new-args expr)))
+  (define i32-type (LLVM-Int32-Type-In-Context c))
+  (for ([val (in-list field-vals)]
+        [i (in-naturals)])
+    (define idx (LLVM-Const-Int i32-type i 0))
+    (define zero (LLVM-Const-Int i32-type 0 0))
+    (define field-ptr (LLVM-Build-GEP2 b llvm-struct-type ptr (list zero idx) 2 ""))
+    (LLVM-Build-Store b val field-ptr))
+
+  ;; Return the pointer to the struct
+  ptr)
+
+(define (emit-field-ref expr)
+  (define b (bld)) (define c (ctx))
+  (define type-name (field-ref-type-name expr))
+  (define fname (field-ref-field-name expr))
+  (define info (hash-ref (current-rec-types) type-name
+                         (lambda () (error 'compile "unknown record type: ~a" type-name))))
+  (define llvm-struct-type (rec-type-info-llvm-type info))
+  (define fields (rec-type-info-fields info))
+
+  ;; Find field index
+  (define field-idx
+    (for/or ([f (in-list fields)] [i (in-naturals)])
+      (and (eq? (car f) fname) i)))
+  (unless field-idx
+    (error 'compile "unknown field ~a in record ~a" fname type-name))
+
+  ;; Get field type for the load
+  (define field-ir-type (cdr (list-ref fields field-idx)))
+  (define field-llvm-type (type->llvm field-ir-type c))
+
+  ;; Compile the sub-expression (should be a pointer to the struct)
+  (define struct-ptr (emit-expr (field-ref-expr expr)))
+
+  ;; GEP to the field and load
+  (define i32-type (LLVM-Int32-Type-In-Context c))
+  (define zero (LLVM-Const-Int i32-type 0 0))
+  (define idx (LLVM-Const-Int i32-type field-idx 0))
+  (define field-ptr (LLVM-Build-GEP2 b llvm-struct-type struct-ptr (list zero idx) 2 ""))
+  (LLVM-Build-Load2 b field-llvm-type field-ptr ""))

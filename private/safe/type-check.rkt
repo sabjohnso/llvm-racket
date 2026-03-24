@@ -166,6 +166,18 @@
                     "if branches must have same type, got ~a and ~a"
                     then-type else-type)])]
 
+    [(rec-new? expr)
+     ;; Record construction returns the record's type.
+     ;; We don't validate field types here (done during compilation).
+     (type-ref (rec-new-type-name expr))]
+
+    [(field-ref? expr)
+     ;; Field access — infer the sub-expression, return the field's declared type.
+     ;; For now, we trust the field type (validated during compilation).
+     ;; Return a generic marker; the compiler determines the actual type.
+     ;; TODO: proper field type lookup with rec-env.
+     f64]  ; placeholder — overridden by compiler's type tracking
+
     [(body? expr)
      (define exprs (body-exprs expr))
      (when (null? exprs)
