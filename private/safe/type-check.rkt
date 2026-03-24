@@ -167,16 +167,30 @@
                     then-type else-type)])]
 
     [(rec-new? expr)
-     ;; Record construction returns the record's type.
-     ;; We don't validate field types here (done during compilation).
      (type-ref (rec-new-type-name expr))]
 
     [(field-ref? expr)
-     ;; Field access — infer the sub-expression, return the field's declared type.
-     ;; For now, we trust the field type (validated during compilation).
-     ;; Return a generic marker; the compiler determines the actual type.
-     ;; TODO: proper field type lookup with rec-env.
-     f64]  ; placeholder — overridden by compiler's type tracking
+     ;; Trust the declared type — validated during compilation.
+     f64]  ; placeholder
+
+    [(ctor? expr)
+     ;; Tagged union constructor — returns the union's type.
+     ;; We'd need a type registry to know which sum type this variant
+     ;; belongs to. For now, return a generic type-ref.
+     (type-ref (ctor-variant-name expr))]
+
+    [(match-variant? expr)
+     ;; Infer from the first case's body.
+     (define cases (match-variant-cases expr))
+     (when (null? cases)
+       (error 'type-check "match-variant must have at least one case"))
+     (define first-case (car cases))
+     ;; Extend env with pattern bindings, then infer body.
+     (define bindings (ctor-pat-bindings (match-case-pattern first-case)))
+     (define ext-env
+       (for/fold ([e env]) ([v (in-list bindings)])
+         (env-extend e (variable-name v) (variable-type v))))
+     (infer-type (match-case-body first-case) ext-env func-env)]
 
     [(body? expr)
      (define exprs (body-exprs expr))

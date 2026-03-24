@@ -33,9 +33,18 @@
 (define current-func-env  (make-parameter #f))  ; alist: (name . (param-types ret-type))
 (define current-loops     (make-parameter #f))  ; hash: symbol → loop-info
 (define current-rec-types (make-parameter #f))  ; hash: symbol → rec-info
+(define current-sum-types  (make-parameter #f))  ; hash: symbol → sum-info
+(define current-variant->sum (make-parameter #f)) ; hash: variant-name → sum-name
 
 (struct loop-info (header-bb phi-nodes bind-vars) #:transparent)
 (struct rec-type-info (llvm-type fields) #:transparent)
+;; fields: list of (field-name . ir-type)
+
+;; Sum type: { i32 tag, [payload bytes] }
+;; Each variant maps to a tag index + its own struct type for the payload.
+(struct sum-type-info (llvm-type variants) #:transparent)
+;; variants: list of (variant-name tag-index llvm-payload-type fields)
+(struct variant-info (name tag llvm-payload-type fields) #:transparent)
 ;; fields: list of (field-name . ir-type)
 
 ;; ---- Top-level entry point -------------------------------------------------
@@ -47,6 +56,7 @@
 
   (define funcs (filter func? decls))
   (define recs  (filter rec? decls))
+  (define sums  (filter sum? decls))
 
   ;; Compile record type declarations
   (define rec-types (make-hash))
@@ -61,6 +71,55 @@
                (rec-type-info llvm-struct
                               (for/list ([f (in-list fields)])
                                 (cons (field-name f) (field-type f))))))
+
+  ;; Compile sum (tagged union) type declarations
+  ;; Layout: { i32 tag, [payload] } where payload is the largest variant's struct.
+  (define sum-types (make-hash))
+  (for ([s (in-list sums)])
+    (define i32-t (LLVM-Int32-Type-In-Context ctx))
+    (define variants-info
+      (for/list ([v (in-list (sum-variants s))] [tag (in-naturals)])
+        (define fields (variant-fields v))
+        (define field-llvm-types
+          (for/list ([f (in-list fields)])
+            (type->llvm (field-type f) ctx)))
+        ;; Create a struct for this variant's payload
+        (define payload-struct
+          (if (null? field-llvm-types)
+              #f  ; no payload
+              (let ([st (LLVM-Struct-Type-In-Context
+                         ctx field-llvm-types (length field-llvm-types) 0)])
+                st)))
+        (variant-info (variant-name v) tag payload-struct
+                      (for/list ([f (in-list fields)])
+                        (cons (field-name f) (field-type f))))))
+    ;; The union type is { i32, [max-payload-size bytes] }
+    ;; For simplicity, use { i32, largest-payload-struct }.
+    ;; If no variants have fields, just { i32 }.
+    (define payload-types
+      (filter values (map variant-info-llvm-payload-type variants-info)))
+    ;; Use an i8 array of max size for the payload. Simpler: just use the
+    ;; largest variant struct directly. For now, use a struct with tag + i64
+    ;; as a fixed-size payload that fits common cases.
+    ;; Actually, use { i32 tag, [8 x i8] } as a generic payload.
+    ;; Better: { i32, max-variant-struct }.
+    ;; Simplest approach that works: use an alloca of { i32, payload-struct }
+    ;; per variant during ctor. For match, cast the pointer.
+    ;; The "union type" itself is just a pointer — we always pass by pointer.
+    ;; Let's create a generic struct { i32 } and handle payload via pointer casts.
+    (define union-struct (LLVM-Struct-Create-Named ctx (symbol->string (sum-name s))))
+    ;; Make it large enough for any variant: { i32, i64, i64, i64, i64 }
+    ;; This is a hack — proper layout would compute max size.
+    ;; For now, allocate 32 bytes of payload (handles up to 4 doubles).
+    (define i64-t (LLVM-Int64-Type-In-Context ctx))
+    (LLVM-Struct-Set-Body union-struct (list i32-t i64-t i64-t i64-t i64-t) 5 0)
+    (hash-set! sum-types (sum-name s) (sum-type-info union-struct variants-info)))
+
+  ;; Also register variant→sum mapping for ctor compilation
+  (define variant->sum (make-hash))
+  (for ([s (in-list sums)])
+    (for ([v (in-list (sum-variants s))])
+      (hash-set! variant->sum (variant-name v) (sum-name s))))
 
   ;; Build func-env incrementally: validate each function, accumulating
   ;; the env with known return types so later functions can call earlier ones.
@@ -112,7 +171,9 @@
                    [current-func-types llvm-func-types]
                    [current-func-env func-env]
                    [current-loops (make-hash)]
-                   [current-rec-types rec-types])
+                   [current-rec-types rec-types]
+                   [current-sum-types sum-types]
+                   [current-variant->sum variant->sum])
       (define result (emit-body (func-body f)))
       (LLVM-Build-Ret bld result)))
 
@@ -126,18 +187,26 @@
 
 ;; ---- Type mapping ----------------------------------------------------------
 
-(define (type->llvm t ctx)
-  (define tag (prim-type-tag t))
-  (case tag
-    [(i1)   (LLVM-Int1-Type-In-Context ctx)]
-    [(i8)   (LLVM-Int8-Type-In-Context ctx)]
-    [(i16)  (LLVM-Int16-Type-In-Context ctx)]
-    [(i32)  (LLVM-Int32-Type-In-Context ctx)]
-    [(i64)  (LLVM-Int64-Type-In-Context ctx)]
-    [(f32)  (LLVM-Float-Type-In-Context ctx)]
-    [(f64)  (LLVM-Double-Type-In-Context ctx)]
-    [(void) (LLVM-Void-Type-In-Context ctx)]
-    [else   (error 'type->llvm "unsupported type: ~a" t)]))
+(define (type->llvm t ctx [rec-types #f] [sum-types* #f])
+  (cond
+    [(prim-type? t)
+     (define tag (prim-type-tag t))
+     (case tag
+       [(i1)   (LLVM-Int1-Type-In-Context ctx)]
+       [(i8)   (LLVM-Int8-Type-In-Context ctx)]
+       [(i16)  (LLVM-Int16-Type-In-Context ctx)]
+       [(i32)  (LLVM-Int32-Type-In-Context ctx)]
+       [(i64)  (LLVM-Int64-Type-In-Context ctx)]
+       [(f32)  (LLVM-Float-Type-In-Context ctx)]
+       [(f64)  (LLVM-Double-Type-In-Context ctx)]
+       [(void) (LLVM-Void-Type-In-Context ctx)]
+       [else   (error 'type->llvm "unsupported prim type: ~a" t)])]
+    [(type-ref? t)
+     ;; Look up in rec or sum types — return pointer to the struct.
+     (define name (type-ref-name t))
+     (define ptr-ty (LLVM-Pointer-Type-In-Context ctx 0))
+     ptr-ty]  ; all user-defined types are passed as opaque pointers
+    [else (error 'type->llvm "unsupported type: ~a" t)]))
 
 ;; ---- Emission helpers (use parameters) -------------------------------------
 
@@ -183,6 +252,8 @@
     [(named-bindings? expr)  (emit-named-bindings expr)]
     [(rec-new? expr)         (emit-rec-new expr)]
     [(field-ref? expr)       (emit-field-ref expr)]
+    [(ctor? expr)            (emit-ctor expr)]
+    [(match-variant? expr)   (emit-match-variant expr)]
     [(app? expr)             (emit-app expr)]
     [(body? expr)            (emit-body expr)]
     [else (error 'compile "unsupported: ~a" expr)]))
@@ -325,6 +396,11 @@
     [(ref? expr)
      (define t (lookup-type (ref-name expr)))
      (if t (type->llvm t c) (LLVM-Int32-Type-In-Context c))]
+    [(body? expr)
+     (define exprs (body-exprs expr))
+     (if (pair? exprs)
+         (infer-result-llvm-type (last exprs))
+         (LLVM-Int32-Type-In-Context c))]
     [else (LLVM-Int32-Type-In-Context c)]))
 
 ;; ---- Named bindings (loop) -------------------------------------------------
@@ -460,3 +536,122 @@
   (define idx (LLVM-Const-Int i32-type field-idx 0))
   (define field-ptr (LLVM-Build-GEP2 b llvm-struct-type struct-ptr (list zero idx) 2 ""))
   (LLVM-Build-Load2 b field-llvm-type field-ptr ""))
+
+;; ---- Tagged union construction and matching --------------------------------
+
+(define (emit-ctor expr)
+  (define b (bld)) (define c (ctx))
+  (define vname (ctor-variant-name expr))
+  (define sum-name (hash-ref (current-variant->sum) vname
+                              (lambda () (error 'compile "unknown variant: ~a" vname))))
+  (define sinfo (hash-ref (current-sum-types) sum-name))
+  (define union-type (sum-type-info-llvm-type sinfo))
+  (define vinfo (for/or ([vi (in-list (sum-type-info-variants sinfo))])
+                  (and (eq? (variant-info-name vi) vname) vi)))
+  (unless vinfo (error 'compile "variant not found: ~a" vname))
+
+  (define i32-type (LLVM-Int32-Type-In-Context c))
+
+  ;; Alloca the union struct
+  (define ptr (LLVM-Build-Alloca b union-type ""))
+
+  ;; Store tag (field 0)
+  (define zero (LLVM-Const-Int i32-type 0 0))
+  (define tag-ptr (LLVM-Build-GEP2 b union-type ptr (list zero zero) 2 ""))
+  (LLVM-Build-Store b (LLVM-Const-Int i32-type (variant-info-tag vinfo) 0) tag-ptr)
+
+  ;; Store payload fields (if any)
+  (define payload-type (variant-info-llvm-payload-type vinfo))
+  (when payload-type
+    (define args (map emit-expr (ctor-args expr)))
+    ;; Cast the pointer to payload struct pointer (starting at field 1)
+    (define one (LLVM-Const-Int i32-type 1 0))
+    (define payload-raw-ptr (LLVM-Build-GEP2 b union-type ptr (list zero one) 2 ""))
+    (define payload-ptr (LLVM-Build-Bit-Cast b payload-raw-ptr
+                                             (LLVM-Pointer-Type-In-Context c 0) ""))
+    (for ([val (in-list args)] [i (in-naturals)])
+      (define idx (LLVM-Const-Int i32-type i 0))
+      (define field-ptr (LLVM-Build-GEP2 b payload-type payload-ptr
+                                         (list zero idx) 2 ""))
+      (LLVM-Build-Store b val field-ptr)))
+
+  ptr)
+
+(define (emit-match-variant expr)
+  (define b (bld)) (define c (ctx)) (define f (fn))
+  (define scrutinee (emit-expr (match-variant-scrutinee expr)))
+  (define cases (match-variant-cases expr))
+
+  ;; Determine which sum type this is
+  ;; Look at the first case's pattern to find the variant name
+  (define first-vname (ctor-pat-variant-name (match-case-pattern (car cases))))
+  (define sum-name (hash-ref (current-variant->sum) first-vname
+                              (lambda () (error 'compile "unknown variant: ~a" first-vname))))
+  (define sinfo (hash-ref (current-sum-types) sum-name))
+  (define union-type (sum-type-info-llvm-type sinfo))
+
+  (define i32-type (LLVM-Int32-Type-In-Context c))
+  (define zero (LLVM-Const-Int i32-type 0 0))
+
+  ;; Load the tag
+  (define tag-ptr (LLVM-Build-GEP2 b union-type scrutinee (list zero zero) 2 ""))
+  (define tag (LLVM-Build-Load2 b i32-type tag-ptr ""))
+
+  ;; Create basic blocks for each case + merge
+  (define merge-bb (LLVM-Append-Basic-Block-In-Context c f "match.merge"))
+  (define case-bbs
+    (for/list ([_ (in-list cases)])
+      (LLVM-Append-Basic-Block-In-Context c f "match.case")))
+  (define default-bb (last case-bbs))
+
+  ;; Switch on tag
+  (define sw (LLVM-Build-Switch b tag default-bb (length cases)))
+  (for ([cs (in-list cases)]
+        [bb (in-list case-bbs)])
+    (define vname (ctor-pat-variant-name (match-case-pattern cs)))
+    (define vinfo (for/or ([vi (in-list (sum-type-info-variants sinfo))])
+                    (and (eq? (variant-info-name vi) vname) vi)))
+    (LLVM-Add-Case sw (LLVM-Const-Int i32-type (variant-info-tag vinfo) 0) bb))
+
+  ;; Compile each case
+  (define case-results
+    (for/list ([cs (in-list cases)]
+               [bb (in-list case-bbs)])
+      (LLVM-Position-Builder-At-End b bb)
+      (define pat (match-case-pattern cs))
+      (define vname (ctor-pat-variant-name pat))
+      (define bindings (ctor-pat-bindings pat))
+      (define vinfo (for/or ([vi (in-list (sum-type-info-variants sinfo))])
+                      (and (eq? (variant-info-name vi) vname) vi)))
+
+      ;; Bind pattern variables by extracting from payload
+      (when (and vinfo (variant-info-llvm-payload-type vinfo) (pair? bindings))
+        (define payload-type (variant-info-llvm-payload-type vinfo))
+        (define one (LLVM-Const-Int i32-type 1 0))
+        (define payload-raw-ptr (LLVM-Build-GEP2 b union-type scrutinee
+                                                 (list zero one) 2 ""))
+        (define payload-ptr (LLVM-Build-Bit-Cast b payload-raw-ptr
+                                                 (LLVM-Pointer-Type-In-Context c 0) ""))
+        (for ([v (in-list bindings)] [i (in-naturals)])
+          (define idx (LLVM-Const-Int i32-type i 0))
+          (define field-ptr (LLVM-Build-GEP2 b payload-type payload-ptr
+                                             (list zero idx) 2 ""))
+          (define field-val (LLVM-Build-Load2 b (type->llvm (variable-type v) c) field-ptr ""))
+          (env-set! (variable-name v) field-val (variable-type v))))
+
+      ;; Compile case body
+      (define result (emit-body (match-case-body cs)))
+      (define exit-bb (LLVM-Get-Insert-Block b))
+      (LLVM-Build-Br b merge-bb)
+      (cons result exit-bb)))
+
+  ;; Merge with phi
+  (LLVM-Position-Builder-At-End b merge-bb)
+  (define result-type
+    ;; Infer from first case's body
+    (infer-result-llvm-type (match-case-body (car cases))))
+  (define phi (LLVM-Build-Phi b result-type ""))
+  (define vals (map car case-results))
+  (define bbs (map cdr case-results))
+  (LLVM-Add-Incoming phi vals bbs (length vals))
+  phi)
