@@ -85,19 +85,41 @@
                     variant-names union-names))])]
 
         ;; Function definition: (define (name args ...) body ...)
+        ;; Args can be bare identifiers (requires prior : annotation)
+        ;; or typed: [arg : Type]
         [(syntax-case (car remaining) (define)
            [(define (name args ...) body ...) #t]
            [_ #f])
          (syntax-case (car remaining) (define)
            [(define (name args ...) body-expr ...)
             (let* ([fn-name (syntax-e #'name)]
-                   [type-info (assq fn-name type-env)]
-                   [_ (unless type-info
-                        (raise-syntax-error 'define-llvm-module
-                                            (format "missing type annotation for ~a" fn-name)
-                                            (car remaining)))]
-                   [param-types (second type-info)]
-                   [arg-names (map syntax-e (syntax->list #'(args ...)))]
+                   [raw-args (syntax->list #'(args ...))]
+                   ;; Detect inline typed args: [arg : Type]
+                   [has-inline-types?
+                    (and (pair? raw-args)
+                         (syntax-case (car raw-args) (:)
+                           [[_ : _] #t]
+                           [_ #f]))]
+                   ;; Extract arg names and types
+                   [arg-names
+                    (if has-inline-types?
+                        (map (lambda (a)
+                               (syntax-case a (:)
+                                 [[n : _] (syntax-e #'n)]))
+                             raw-args)
+                        (map syntax-e raw-args))]
+                   [param-types
+                    (if has-inline-types?
+                        (map (lambda (a)
+                               (syntax-case a (:)
+                                 [[_ : t] (type-name->repr #'t)]))
+                             raw-args)
+                        (let ([type-info (assq fn-name type-env)])
+                          (unless type-info
+                            (raise-syntax-error 'define-llvm-module
+                                                (format "missing type annotation for ~a" fn-name)
+                                                (car remaining)))
+                          (second type-info)))]
                    [formals-stx
                     #`(formals #,@(map (lambda (n t)
                                          #`(variable '#,n #,t))
@@ -106,7 +128,14 @@
                               (syntax->list #'(body-expr ...))
                               type-env rec-names variant-names)]
                    [decl #`(func '#,fn-name #,formals-stx (body #,@body-stx))])
-              (loop (cdr remaining) type-env
+              ;; When using inline types, add to type-env so later functions
+              ;; can reference this one (even without explicit : annotation).
+              ;; Use #f for return type — inferred at runtime.
+              (define new-type-env
+                (if has-inline-types?
+                    (cons (list fn-name param-types #f) type-env)
+                    type-env))
+              (loop (cdr remaining) new-type-env
                     (cons decl decls)
                     rec-names variant-names union-names))])]
 

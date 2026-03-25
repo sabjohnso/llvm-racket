@@ -110,4 +110,37 @@
           [else     x])))
     (check-equal? (call m 'abs-val -7) 7)
     (check-equal? (call m 'abs-val 5) 5)
-    (check-equal? (call m 'abs-val 0) 0)))
+    (check-equal? (call m 'abs-val 0) 0))
+
+  ;; ---- Type inference (inline parameter types, inferred return) ---------------
+
+  (test-case "inferred: simple add"
+    (define-llvm-module m
+      (define (add [a : Int32] [b : Int32]) (+ a b)))
+    (check-equal? (call m 'add 3 4) 7))
+
+  (test-case "inferred: float multiply"
+    (define-llvm-module m
+      (define (fmul [x : Float64] [y : Float64]) (* x y)))
+    (check-= (call m 'fmul 3.0 2.5) 7.5 0.0))
+
+  (test-case "inferred: factorial with named let"
+    (define-llvm-module m
+      (define (fact [n : Int32])
+        (let loop ([i : Int32 n] [acc : Int32 1])
+          (if (<= i 1) acc (loop (- i 1) (* acc i))))))
+    (check-equal? (call m 'fact 10) 3628800))
+
+  (test-case "inferred: cross-function calls"
+    (define-llvm-module m
+      (define (double [x : Int32]) (+ x x))
+      (define (quad [x : Int32]) (double (double x))))
+    (check-equal? (call m 'quad 3) 12))
+
+  (test-case "inferred: mixed with explicit annotation"
+    (define-llvm-module m
+      (: add (-> Int32 Int32 Int32))
+      (define (add a b) (+ a b))
+      (define (inc [x : Int32]) (add x 1)))
+    (check-equal? (call m 'add 3 4) 7)
+    (check-equal? (call m 'inc 9) 10)))
