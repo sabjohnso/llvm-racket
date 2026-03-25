@@ -95,8 +95,15 @@
 
   ;; Cast address to callable function pointer and invoke
   (define fn-ptr (cast addr _uint64 _pointer))
-  (define callable (cast fn-ptr _pointer (_cprocedure c-params c-ret)))
-  (apply callable marshalled-args))
+  (cond
+    [(and (prim-type? ret-type) (eq? (prim-type-tag ret-type) 'void))
+     ;; Void return — call for side effect, return Racket (void)
+     (define callable (cast fn-ptr _pointer (_cprocedure c-params _void)))
+     (apply callable marshalled-args)
+     (void)]
+    [else
+     (define callable (cast fn-ptr _pointer (_cprocedure c-params c-ret)))
+     (apply callable marshalled-args)]))
 
 ;; ---- Type marshalling ------------------------------------------------------
 
@@ -111,6 +118,7 @@
        [(i64)  _int64]
        [(f32)  _float]
        [(f64)  _double]
+       [(void) _void]
        [else (error 'ir-type->ctype "unsupported prim: ~a" t)])]
     [(type-ref? t)
      ;; Records and unions are passed as pointers

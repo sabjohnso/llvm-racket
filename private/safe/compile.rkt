@@ -175,7 +175,13 @@
                    [current-sum-types sum-types]
                    [current-variant->sum variant->sum])
       (define result (emit-body (func-body f)))
-      (LLVM-Build-Ret bld result)))
+      ;; Emit ret or ret void depending on return type
+      (define entry (assq (func-name f) func-env))
+      (define ret-type (and entry (cadr (cdr entry))))
+      (if (and ret-type (prim-type? ret-type)
+               (eq? (prim-type-tag ret-type) 'void))
+          (LLVM-Build-Ret-Void bld)
+          (LLVM-Build-Ret bld result))))
 
   (LLVM-Verify-Module llvm-mod 'LLVMReturnStatusAction)
 
@@ -243,6 +249,7 @@
 
 (define (emit-expr expr)
   (cond
+    [(void-expr? expr)       #f]  ; void — no value
     [(lit? expr)             (emit-lit expr)]
     [(ref? expr)             (env-ref (ref-name expr))]
     [(op-app? expr)          (emit-op expr)]

@@ -3,7 +3,8 @@
 (module+ test
   (require rackunit
            llvm/private/safe/repr
-           llvm/private/safe/module)
+           llvm/private/safe/module
+           llvm/private/safe/syntax)
 
   (test-case "make-llvm-module and call: add(3, 4) = 7"
     (define m (make-llvm-module
@@ -71,4 +72,19 @@
                #:optimize #f
                (func 'add (formals (variable 'a i32) (variable 'b i32))
                           (body ((op '+) (ref 'a) (ref 'b))))))
-    (check-equal? (call m 'add 3 4) 7)))
+    (check-equal? (call m 'add 3 4) 7))
+
+  ;; ---- Void-returning functions -----------------------------------------------
+
+  (test-case "void function: runtime API"
+    (define m (make-llvm-module
+               #:optimize #f
+               (func 'do-nothing (formals)
+                     (body (void-expr)))))
+    (check-equal? (call m 'do-nothing) (void)))
+
+  (test-case "void function: macro layer"
+    (define-llvm-module m
+      (: do-nothing (-> Void))
+      (define (do-nothing) (void)))
+    (check-equal? (call m 'do-nothing) (void))))

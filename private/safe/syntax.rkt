@@ -187,7 +187,10 @@
   (define (transform-expr stx type-env rec-names variant-names)
     (define (tx1 e) (tx e type-env rec-names variant-names))
     (define (tx1* es) (tx* es type-env rec-names variant-names))
-    (syntax-case stx (if let match cond else)
+    (syntax-case stx (if let match cond else void)
+      ;; Void expression
+      [(void) #'(void-expr)]
+
       ;; Literal integer
       [val (exact-integer? (syntax-e #'val))
        #`(lit #,(syntax-e #'val) i32)]

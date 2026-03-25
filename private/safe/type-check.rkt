@@ -166,6 +166,9 @@
                     "if branches must have same type, got ~a and ~a"
                     then-type else-type)])]
 
+    [(void-expr? expr)
+     void-type]
+
     [(rec-new? expr)
      (type-ref (rec-new-type-name expr))]
 

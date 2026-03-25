@@ -24,6 +24,7 @@
          rec-new rec-new? rec-new-type-name rec-new-args
          field-ref field-ref? field-ref-expr field-ref-type-name field-ref-field-name
          ctor ctor? ctor-variant-name ctor-args
+         void-expr void-expr?
          if-form if-form? if-form-condition if-form-then if-form-else
          cond-form cond-form? cond-form-clauses cond-form-else
          cond-clause cond-clause? cond-clause-test cond-clause-expr
@@ -106,6 +107,11 @@
 
 (define (fcmp pred)
   (lambda args (fcmp-app pred args)))
+
+;; Void expression — used as the last expression in a void-returning function.
+(struct %void-expr () #:transparent)
+(define (void-expr) (%void-expr))
+(define (void-expr? v) (%void-expr? v))
 
 ;; Record construction: (rec-new 'Point expr1 expr2)
 (struct %rec-new (type-name args) #:transparent)
