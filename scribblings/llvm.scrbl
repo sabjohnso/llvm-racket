@@ -1,5 +1,6 @@
 #lang scribble/manual
 @require[@for-label[llvm/unsafe
+                    llvm/safe
                     ffi/unsafe
                     racket/base]]
 
@@ -8,20 +9,342 @@
 
 LLVM bindings for Racket via the LLVM C API.
 
-@defmodule[llvm/unsafe]
-
-The package provides a thin FFI layer that maps directly to the
-@hyperlink["https://llvm.org/doxygen/group__LLVMC.html"]{LLVM C API}.
-Naming follows uppercase-kebab convention: the C function
-@tt{LLVMContextCreate} becomes @racket[LLVM-Context-Create].
-
-All resources are GC-managed --- you do not need to call @tt{Dispose}
-functions manually.  Errors from LLVM are raised as @racket[exn:fail].
+The package provides two layers:
+@itemlist[
+  @item{@bold{@tt{llvm/safe}} --- A high-level safe API with Racket-like
+        syntax, automatic type checking, optimization, JIT compilation, and
+        marshalling.  Start here.}
+  @item{@bold{@tt{llvm/unsafe}} --- A thin FFI layer mapping directly to
+        the LLVM C API.  Use this when you need full control or access to
+        features not yet in the safe API.}
+]
 
 @local-table-of-contents[]
 
 @; ===========================================================================
-@section{Guide}
+@section{Safe API Guide}
+
+@defmodule[llvm/safe]
+
+The safe API lets you define LLVM modules using Racket-like syntax,
+JIT-compile them, and call the resulting native functions.  All type
+checking, optimization, and resource management are handled
+automatically.
+
+@subsection{Quick Start}
+
+@racketblock[
+(require llvm/safe)
+
+(define-llvm-module m
+  (define (add [a : Int32] [b : Int32]) (+ a b)))
+
+(call m 'add 3 4) (code:comment "=> 7")
+]
+
+@subsection{Defining Functions}
+
+Functions are defined inside @racket[define-llvm-module] using standard
+Racket @racket[define] syntax with type-annotated parameters:
+
+@racketblock[
+(define-llvm-module m
+  (define (square [x : Float64]) (* x x))
+  (define (hypotenuse [a : Float64] [b : Float64])
+    (let ([a2 : Float64 (* a a)]
+          [b2 : Float64 (* b b)])
+      (+ a2 b2))))
+]
+
+Available primitive types: @racket[Int1] (boolean), @racket[Int8],
+@racket[Int16], @racket[Int32], @racket[Int64], @racket[Float32],
+@racket[Float64], @racket[Void].
+
+Alternatively, type annotations can be provided separately using
+@tt{(: name (-> Arg ... Ret))} notation:
+
+@racketblock[
+(define-llvm-module m
+  (: add (-> Int32 Int32 Int32))
+  (define (add a b) (+ a b)))
+]
+
+@subsection{Supported Expressions}
+
+The following expression forms are supported inside function bodies:
+
+@itemlist[
+  @item{@bold{Arithmetic}: @racket[+], @racket[-], @racket[*], @racket[/]}
+  @item{@bold{Comparisons}: @racket[<], @racket[<=], @racket[>], @racket[>=],
+        @racket[=], @racket[!=]}
+  @item{@bold{Conditionals}: @racket[if], @racket[cond] (with @racket[else])}
+  @item{@bold{Local bindings}: @racket[let] with typed bindings}
+  @item{@bold{Loops}: named @racket[let] (compiles to phi nodes + branches)}
+  @item{@bold{Function calls}: call other functions defined in the same module}
+  @item{@bold{Void}: @racket[(void)] for void-returning functions}
+  @item{@bold{Integer and float literals}: @racket[42], @racket[3.14]}
+]
+
+Arithmetic and comparison operators are type-overloaded: @racket[+] on
+@racket[Int32] emits integer add, on @racket[Float64] emits float add.
+
+@subsection{Conditionals and Loops}
+
+@racketblock[
+(code:comment "if expression")
+(if (> a b) a b)
+
+(code:comment "cond expression (must have else)")
+(cond
+  [(< x 0)  -1]
+  [(= x 0)   0]
+  [else       1])
+
+(code:comment "named let (loop)")
+(let loop ([i : Int32 n] [acc : Int32 1])
+  (if (<= i 1) acc (loop (- i 1) (* acc i))))
+]
+
+@subsection{Defining Record Types}
+
+Define record (struct) types with @racket[define-record]:
+
+@racketblock[
+(define-llvm-module m
+  (define-record Point ([x : Float64] [y : Float64]))
+
+  (define (distance-sq [ax : Float64] [ay : Float64]
+                       [bx : Float64] [by : Float64])
+    (let ([dx : Float64 (- (Point-x (Point ax ay))
+                            (Point-x (Point bx by)))]
+          [dy : Float64 (- (Point-y (Point ax ay))
+                            (Point-y (Point bx by)))])
+      (+ (* dx dx) (* dy dy)))))
+]
+
+Record constructors use the type name: @racket[(Point x y)].
+Field accessors use @tt{TypeName-fieldName}: @racket[(Point-x p)].
+
+@subsection{Tagged Unions}
+
+Define tagged union types with @racket[union] and pattern match with
+@racket[match]:
+
+@racketblock[
+(define-llvm-module m
+  (union Opt-Int
+    [Some ([value : Int32])]
+    [None])
+
+  (define (unwrap [x : Int32])
+    (match (Some x)
+      [(Some v) v]
+      [(None)   0])))
+]
+
+Variant constructors: @racket[(Some 42)], @racket[(None)].
+
+@subsection{Passing Records and Unions to @tt{call}}
+
+Records are passed as Racket lists matching field order.  Unions are
+passed as tagged lists:
+
+@racketblock[
+(call m 'get-x '(3.0 4.0))       (code:comment "Pass a Point record")
+(call m 'unwrap '(Some 42))       (code:comment "Pass a Some variant")
+(call m 'unwrap '(None))          (code:comment "Pass a None variant")
+]
+
+@subsection{Configuring Optimization}
+
+By default, @racket[make-llvm-module] runs LLVM's @tt{default<O2>}
+optimization pipeline.  You can customize this:
+
+@racketblock[
+(code:comment "Aggressive optimization")
+(make-llvm-module #:optimize "default<O3>" ...)
+
+(code:comment "Disable optimization")
+(make-llvm-module #:optimize #f ...)
+]
+
+@subsection{Using the Runtime API}
+
+The runtime API is the code generator target.  It builds an IR
+representation as pure data, then compiles it:
+
+@racketblock[
+(require llvm/safe)
+
+(define m
+  (make-llvm-module
+   (func 'add (formals (variable 'a i32) (variable 'b i32))
+         (body ((op '+) (ref 'a) (ref 'b))))))
+
+(call m 'add 3 4) (code:comment "=> 7")
+]
+
+The runtime API constructors (@racket[func], @racket[formals],
+@racket[variable], @racket[body], @racket[op], @racket[ref],
+@racket[lit], etc.) build a data representation that is validated
+and compiled by @racket[make-llvm-module].  No LLVM interaction
+occurs until @racket[make-llvm-module] is called.
+
+@; ===========================================================================
+@section{Safe API Reference}
+
+@subsection{Module Construction and Execution}
+
+@defform[(define-llvm-module name body ...)]{
+Define an LLVM module using Racket-like syntax.  @racket[body] forms
+can be function definitions, record definitions, union definitions,
+and type annotations.  The module is compiled, optimized, and
+JIT-compiled automatically.  Binds @racket[name] to a @racket[safe-module?].}
+
+@defproc[(make-llvm-module [#:optimize optimize (or/c string? #f) "default<O2>"]
+                           [decl any/c] ...)
+         safe-module?]{
+Compile a list of IR declarations into a JIT-compiled module.  Each
+@racket[decl] is a @racket[func], @racket[rec], @racket[sum], or
+@racket[define-global] form.  Pass @racket[#:optimize #f] to disable
+optimization, or a pipeline string like @racket["default<O3>"].}
+
+@defproc[(call [m safe-module?] [fn-name symbol?] [arg any/c] ...) any/c]{
+Call a JIT-compiled function by name.  Arguments are automatically
+marshalled: primitives pass through, records as lists, unions as
+tagged lists.  Returns the function's result, or @racket[(void)] for
+void functions.}
+
+@defproc[(safe-module? [v any/c]) boolean?]{
+Predicate for compiled safe modules.}
+
+@defproc[(safe-module-ir [m safe-module?]) string?]{
+Return the LLVM IR text of a compiled module (useful for debugging).}
+
+@subsection{Primitive Types}
+
+@deftogether[(@defthing[i1 ir-type?]
+              @defthing[i8 ir-type?]
+              @defthing[i16 ir-type?]
+              @defthing[i32 ir-type?]
+              @defthing[i64 ir-type?])]{
+Integer types of 1, 8, 16, 32, and 64 bits.}
+
+@deftogether[(@defthing[f32 ir-type?]
+              @defthing[f64 ir-type?])]{
+32-bit and 64-bit IEEE floating point types.}
+
+@defthing[void-type ir-type?]{The void type (for functions that return nothing).}
+
+@subsection{Functions and Bindings}
+
+@defproc[(func [name symbol?] [formals formals?] [body body?]) func?]{
+Declare a function with @racket[name], formal parameters, and a body.}
+
+@defproc[(formals [var variable?] ...) formals?]{
+Declare formal parameters for a function.}
+
+@defproc[(variable [name symbol?] [type ir-type?]) variable?]{
+Declare a typed variable.}
+
+@defproc[(body [expr any/c] ...) body?]{
+A sequence of expressions.  The last expression's value is returned
+(like @racket[begin]).}
+
+@defproc[(named-bindings [name symbol?] [binds (listof bind?)] [body body?])
+         named-bindings?]{
+A named let / loop.  @racket[binds] are the initial bindings,
+@racket[body] is the loop body.  Recurrence is via @racket[app] to
+@racket[name].}
+
+@defproc[(bind [var variable?] [init any/c]) bind?]{
+A binding: variable + initial value expression.}
+
+@subsection{Expressions}
+
+@defproc[(lit [value any/c] [type ir-type?]) lit?]{
+A literal constant.}
+
+@defproc[(ref [name symbol?]) ref?]{
+A reference to a variable or parameter by name.}
+
+@defproc[(op [sym symbol?]) procedure?]{
+Returns a function that constructs an operator application.
+Operators: @racket['+], @racket['-], @racket['*], @racket['/],
+@racket['neg], @racket['bit-and], @racket['bit-or], @racket['bit-xor],
+@racket['bit-not], @racket['shl], @racket['shr].}
+
+@defproc[(icmp [pred symbol?]) procedure?]{
+Returns a function that constructs an integer comparison.
+Predicates: @racket['=], @racket['!=], @racket['<], @racket['<=],
+@racket['>], @racket['>=].}
+
+@defproc[(fcmp [pred symbol?]) procedure?]{
+Returns a function that constructs a float comparison.  Same
+predicates as @racket[icmp].}
+
+@defproc[(app [callee ref?] [arg any/c] ...) app?]{
+Function or loop application.}
+
+@defproc[(if-form [condition any/c] [then any/c] [else any/c]) if-form?]{
+Conditional expression.  @racket[condition] must be @racket[i1].
+Both branches must have the same type.}
+
+@defproc[(cond-form [clauses (listof cond-clause?)] [else any/c]) cond-form?]{
+Multi-way conditional.}
+
+@defproc[(cond-clause [test any/c] [expr any/c]) cond-clause?]{
+A clause for @racket[cond-form].}
+
+@defproc[(void-expr) void-expr?]{
+Void expression, used as the last expression in a void-returning function.}
+
+@subsection{Record Types}
+
+@defproc[(rec [name symbol?] [fld field?] ...) rec?]{
+Declare a record (struct) type.}
+
+@defproc[(field [name symbol?] [type ir-type?]) field?]{
+Declare a field in a record or variant.}
+
+@defproc[(rec-new [type-name symbol?] [arg any/c] ...) rec-new?]{
+Construct a record value.}
+
+@defproc[(field-ref [expr any/c] [type-name symbol?] [field-name symbol?])
+         field-ref?]{
+Access a field from a record.}
+
+@subsection{Tagged Union Types}
+
+@defproc[(sum [name symbol?] [var variant?] ...) sum?]{
+Declare a tagged union type.}
+
+@defproc[(variant [name symbol?] [fld field?] ...) variant?]{
+Declare a variant of a tagged union.  Variants with no fields are
+allowed: @racket[(variant 'None)].}
+
+@defproc[(ctor [variant-name symbol?] [arg any/c] ...) ctor?]{
+Construct a tagged union value.}
+
+@defproc[(match-variant [scrutinee any/c] [case match-case?] ...) match-variant?]{
+Pattern match on a tagged union.}
+
+@defproc[(match-case [pat ctor-pat?] [body body?]) match-case?]{
+A case in a @racket[match-variant].}
+
+@defproc[(ctor-pat [variant-name symbol?] [binding variable?] ...) ctor-pat?]{
+A pattern that matches a variant and binds its fields.}
+
+@subsection{Type References and Pointers}
+
+@defproc[(type-ref [name symbol?]) type-ref?]{
+Reference a user-defined type (record or union) by name.}
+
+@defproc[(ptr-type [element ir-type?]) ptr-type?]{
+A pointer type.}
+
+@; ===========================================================================
+@section{Unsafe FFI Guide}
 
 @; ---------------------------------------------------------------------------
 @subsection{Quick Start: ORC JIT}
@@ -191,7 +514,15 @@ detect the mismatch; the result is silent corruption or a crash.
 When in doubt, create a single context and use it everywhere.
 
 @; ===========================================================================
-@section{API Reference}
+@section{Unsafe FFI Reference}
+
+@defmodule[llvm/unsafe]
+
+The thin FFI layer maps directly to the
+@hyperlink["https://llvm.org/doxygen/group__LLVMC.html"]{LLVM C API}.
+Naming follows uppercase-kebab convention: the C function
+@tt{LLVMContextCreate} becomes @racket[LLVM-Context-Create].
+All resources are GC-managed.  Errors are raised as @racket[exn:fail].
 
 @; ---------------------------------------------------------------------------
 @subsection{Library Loading}
