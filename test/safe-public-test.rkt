@@ -9,20 +9,20 @@
   (test-case "llvm/safe: macro layer works"
     (define-llvm-module m
       (define (add [a : Int32] [b : Int32]) (+ a b)))
-    (check-equal? (call m 'add 3 4) 7))
+    (check-equal? (call m add 3 4) 7))
 
   (test-case "llvm/safe: runtime API works"
     (define m (make-llvm-module
                (func 'mul (formals (variable 'a i32) (variable 'b i32))
                           (body ((op '*) (ref 'a) (ref 'b))))))
-    (check-equal? (call m 'mul 6 7) 42))
+    (check-equal? (call m mul 6 7) 42))
 
   (test-case "llvm/safe: record types via macro"
     (define-llvm-module m
       (define-record Point ([x : Float64] [y : Float64]))
       (define (get-x [a : Float64] [b : Float64])
         (Point-x (Point a b))))
-    (check-= (call m 'get-x 3.0 4.0) 3.0 0.0))
+    (check-= (call m get-x 3.0 4.0) 3.0 0.0))
 
   (test-case "llvm/safe: union and match via macro"
     (define-llvm-module m
@@ -33,7 +33,7 @@
         (match (Some x)
           [(Some v) v]
           [(None) 0])))
-    (check-equal? (call m 'unwrap 42) 42))
+    (check-equal? (call m unwrap 42) 42))
 
   (test-case "llvm/safe: primitive types available"
     (check-not-false i1)

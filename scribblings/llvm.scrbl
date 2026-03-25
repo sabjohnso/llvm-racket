@@ -39,7 +39,7 @@ automatically.
 (define-llvm-module m
   (define (add [a : Int32] [b : Int32]) (+ a b)))
 
-(call m 'add 3 4) (code:comment "=> 7")
+(call m add 3 4) (code:comment "=> 7")
 ]
 
 @subsection{Defining Functions}
@@ -150,9 +150,9 @@ Records are passed as Racket lists matching field order.  Unions are
 passed as tagged lists:
 
 @racketblock[
-(call m 'get-x '(3.0 4.0))       (code:comment "Pass a Point record")
-(call m 'unwrap '(Some 42))       (code:comment "Pass a Some variant")
-(call m 'unwrap '(None))          (code:comment "Pass a None variant")
+(call m get-x '(3.0 4.0))       (code:comment "Pass a Point record")
+(call m unwrap '(Some 42))       (code:comment "Pass a Some variant")
+(call m unwrap '(None))          (code:comment "Pass a None variant")
 ]
 
 @subsection{Configuring Optimization}
@@ -181,7 +181,7 @@ representation as pure data, then compiles it:
    (func 'add (formals (variable 'a i32) (variable 'b i32))
          (body ((op '+) (ref 'a) (ref 'b))))))
 
-(call m 'add 3 4) (code:comment "=> 7")
+(call m add 3 4) (code:comment "=> 7")
 ]
 
 The runtime API constructors (@racket[func], @racket[formals],
@@ -209,11 +209,15 @@ Compile a list of IR declarations into a JIT-compiled module.  Each
 @racket[define-global] form.  Pass @racket[#:optimize #f] to disable
 optimization, or a pipeline string like @racket["default<O3>"].}
 
-@defproc[(call [m safe-module?] [fn-name symbol?] [arg any/c] ...) any/c]{
-Call a JIT-compiled function by name.  Arguments are automatically
-marshalled: primitives pass through, records as lists, unions as
-tagged lists.  Returns the function's result, or @racket[(void)] for
-void functions.}
+@defform[(call m fn-name arg ...)]{
+Call a JIT-compiled function by name.  @racket[fn-name] is an unquoted
+identifier (automatically quoted by the macro).  Arguments are
+automatically marshalled: primitives pass through, records as lists,
+unions as tagged lists.  Returns the function's result, or
+@racket[(void)] for void functions.
+
+For dynamic dispatch, use @racket[call-fn] which takes a quoted symbol:
+@racket[(call-fn m 'fn-name arg ...)].}
 
 @defproc[(safe-module? [v any/c]) boolean?]{
 Predicate for compiled safe modules.}

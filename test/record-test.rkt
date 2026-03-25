@@ -14,7 +14,7 @@
                               (field-ref
                                (rec-new 'Point (ref 'a) (ref 'b))
                                'Point 'x)))))
-    (check-= (call m 'get-x 3.0 4.0) 3.0 0.0))
+    (check-= (call m get-x 3.0 4.0) 3.0 0.0))
 
   (test-case "record: access second field"
     (define m (make-llvm-module
@@ -24,7 +24,7 @@
                               (field-ref
                                (rec-new 'Point (ref 'a) (ref 'b))
                                'Point 'y)))))
-    (check-= (call m 'get-y 3.0 4.0) 4.0 0.0))
+    (check-= (call m get-y 3.0 4.0) 4.0 0.0))
 
   (test-case "record: compute with fields"
     ;; distance-squared(ax, ay, bx, by) = (ax-bx)^2 + (ay-by)^2
@@ -40,4 +40,4 @@
                                       [dy ((op '-) (field-ref pa 'Point 'y)
                                                    (field-ref pb 'Point 'y))])
                                  ((op '+) ((op '*) dx dx) ((op '*) dy dy)))))))
-    (check-= (call m 'dist-sq 1.0 2.0 4.0 6.0) 25.0 0.0)))
+    (check-= (call m dist-sq 1.0 2.0 4.0 6.0) 25.0 0.0)))

@@ -15,6 +15,7 @@
 
 (provide make-llvm-module
          call
+         call-fn
          safe-module?
          safe-module-ir)
 
@@ -74,11 +75,15 @@
 
 ;; ---- call ------------------------------------------------------------------
 
-(define (call m fn-name . args)
+;; Macro that auto-quotes the function name.
+(define-syntax-rule (call m fn-name arg ...)
+  (call-fn m 'fn-name arg ...))
+
+(define (call-fn m fn-name . args)
   (define jit (safe-module-jit m))
   (define entry (assq fn-name (safe-module-func-env m)))
   (unless entry
-    (error 'call "unknown function: ~a" fn-name))
+    (error 'call-fn "unknown function: ~a" fn-name))
   (define param-types (car (cdr entry)))
   (define ret-type (cadr (cdr entry)))
   (define decls (safe-module-decls m))

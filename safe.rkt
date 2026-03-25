@@ -16,6 +16,7 @@
  ;; Runtime API: module construction and execution
  make-llvm-module
  call
+ call-fn
  safe-module?
  safe-module-ir
 

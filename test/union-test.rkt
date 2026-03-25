@@ -39,8 +39,8 @@
                                     (body (ref 'v)))
                         (match-case (ctor-pat 'None)
                                     (body (lit 0 i32))))))))
-    (check-equal? (call m 'wrap 42) 42)
-    (check-equal? (call m 'wrap 0) 0))
+    (check-equal? (call m wrap 42) 42)
+    (check-equal? (call m wrap 0) 0))
 
   (test-case "tagged union: construct None variant"
     (define m (make-llvm-module
@@ -54,4 +54,4 @@
                                     (body (lit 1 i32)))
                         (match-case (ctor-pat 'None)
                                     (body (lit 0 i32))))))))
-    (check-equal? (call m 'make-none) 0)))
+    (check-equal? (call m make-none) 0)))
