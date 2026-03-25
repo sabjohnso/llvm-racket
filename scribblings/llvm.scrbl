@@ -193,6 +193,8 @@ occurs until @racket[make-llvm-module] is called.
 @; ===========================================================================
 @section{Safe API Reference}
 
+@declare-exporting[llvm/safe]
+
 @subsection{Module Construction and Execution}
 
 @defform[(define-llvm-module name body ...)]{
@@ -206,7 +208,7 @@ JIT-compiled automatically.  Binds @racket[name] to a @racket[safe-module?].}
          safe-module?]{
 Compile a list of IR declarations into a JIT-compiled module.  Each
 @racket[decl] is a @racket[func], @racket[rec], @racket[sum], or
-@racket[define-global] form.  Pass @racket[#:optimize #f] to disable
+@tt{define-global} form.  Pass @racket[#:optimize #f] to disable
 optimization, or a pipeline string like @racket["default<O3>"].}
 
 @defform[(call m fn-name arg ...)]{
@@ -216,8 +218,11 @@ automatically marshalled: primitives pass through, records as lists,
 unions as tagged lists.  Returns the function's result, or
 @racket[(void)] for void functions.
 
-For dynamic dispatch, use @racket[call-fn] which takes a quoted symbol:
-@racket[(call-fn m 'fn-name arg ...)].}
+For dynamic dispatch, use @racket[call-fn] which takes a quoted symbol.}
+
+@defproc[(call-fn [m safe-module?] [fn-name symbol?] [arg any/c] ...) any/c]{
+Like @racket[call], but @racket[fn-name] is a quoted symbol.  Use when
+the function name is computed at runtime.}
 
 @defproc[(safe-module? [v any/c]) boolean?]{
 Predicate for compiled safe modules.}
@@ -227,46 +232,46 @@ Return the LLVM IR text of a compiled module (useful for debugging).}
 
 @subsection{Primitive Types}
 
-@deftogether[(@defthing[i1 ir-type?]
-              @defthing[i8 ir-type?]
-              @defthing[i16 ir-type?]
-              @defthing[i32 ir-type?]
-              @defthing[i64 ir-type?])]{
+@deftogether[(@defthing[i1 any/c]
+              @defthing[i8 any/c]
+              @defthing[i16 any/c]
+              @defthing[i32 any/c]
+              @defthing[i64 any/c])]{
 Integer types of 1, 8, 16, 32, and 64 bits.}
 
-@deftogether[(@defthing[f32 ir-type?]
-              @defthing[f64 ir-type?])]{
+@deftogether[(@defthing[f32 any/c]
+              @defthing[f64 any/c])]{
 32-bit and 64-bit IEEE floating point types.}
 
-@defthing[void-type ir-type?]{The void type (for functions that return nothing).}
+@defthing[void-type any/c]{The void type (for functions that return nothing).}
 
 @subsection{Functions and Bindings}
 
-@defproc[(func [name symbol?] [formals formals?] [body body?]) func?]{
+@defproc[(func [name symbol?] [formals any/c] [body any/c]) func?]{
 Declare a function with @racket[name], formal parameters, and a body.}
 
-@defproc[(formals [var variable?] ...) formals?]{
+@defproc[(formals [var any/c] ...) formals?]{
 Declare formal parameters for a function.}
 
-@defproc[(variable [name symbol?] [type ir-type?]) variable?]{
+@defproc[(variable [name symbol?] [type any/c]) variable?]{
 Declare a typed variable.}
 
 @defproc[(body [expr any/c] ...) body?]{
 A sequence of expressions.  The last expression's value is returned
 (like @racket[begin]).}
 
-@defproc[(named-bindings [name symbol?] [binds (listof bind?)] [body body?])
+@defproc[(named-bindings [name symbol?] [binds (listof any/c)] [body any/c])
          named-bindings?]{
 A named let / loop.  @racket[binds] are the initial bindings,
 @racket[body] is the loop body.  Recurrence is via @racket[app] to
 @racket[name].}
 
-@defproc[(bind [var variable?] [init any/c]) bind?]{
+@defproc[(bind [var any/c] [init any/c]) bind?]{
 A binding: variable + initial value expression.}
 
 @subsection{Expressions}
 
-@defproc[(lit [value any/c] [type ir-type?]) lit?]{
+@defproc[(lit [value any/c] [type any/c]) lit?]{
 A literal constant.}
 
 @defproc[(ref [name symbol?]) ref?]{
@@ -287,14 +292,14 @@ Predicates: @racket['=], @racket['!=], @racket['<], @racket['<=],
 Returns a function that constructs a float comparison.  Same
 predicates as @racket[icmp].}
 
-@defproc[(app [callee ref?] [arg any/c] ...) app?]{
+@defproc[(app [callee any/c] [arg any/c] ...) app?]{
 Function or loop application.}
 
 @defproc[(if-form [condition any/c] [then any/c] [else any/c]) if-form?]{
 Conditional expression.  @racket[condition] must be @racket[i1].
 Both branches must have the same type.}
 
-@defproc[(cond-form [clauses (listof cond-clause?)] [else any/c]) cond-form?]{
+@defproc[(cond-form [clauses (listof any/c)] [else any/c]) cond-form?]{
 Multi-way conditional.}
 
 @defproc[(cond-clause [test any/c] [expr any/c]) cond-clause?]{
@@ -305,10 +310,10 @@ Void expression, used as the last expression in a void-returning function.}
 
 @subsection{Record Types}
 
-@defproc[(rec [name symbol?] [fld field?] ...) rec?]{
+@defproc[(rec [name symbol?] [fld any/c] ...) any/c]{
 Declare a record (struct) type.}
 
-@defproc[(field [name symbol?] [type ir-type?]) field?]{
+@defproc[(field [name symbol?] [type any/c]) any/c]{
 Declare a field in a record or variant.}
 
 @defproc[(rec-new [type-name symbol?] [arg any/c] ...) rec-new?]{
@@ -320,31 +325,31 @@ Access a field from a record.}
 
 @subsection{Tagged Union Types}
 
-@defproc[(sum [name symbol?] [var variant?] ...) sum?]{
+@defproc[(sum [name symbol?] [var any/c] ...) any/c]{
 Declare a tagged union type.}
 
-@defproc[(variant [name symbol?] [fld field?] ...) variant?]{
+@defproc[(variant [name symbol?] [fld any/c] ...) any/c]{
 Declare a variant of a tagged union.  Variants with no fields are
 allowed: @racket[(variant 'None)].}
 
-@defproc[(ctor [variant-name symbol?] [arg any/c] ...) ctor?]{
+@defproc[(ctor [variant-name symbol?] [arg any/c] ...) any/c]{
 Construct a tagged union value.}
 
-@defproc[(match-variant [scrutinee any/c] [case match-case?] ...) match-variant?]{
+@defproc[(match-variant [scrutinee any/c] [case any/c] ...) any/c]{
 Pattern match on a tagged union.}
 
-@defproc[(match-case [pat ctor-pat?] [body body?]) match-case?]{
+@defproc[(match-case [pat any/c] [body any/c]) match-case?]{
 A case in a @racket[match-variant].}
 
-@defproc[(ctor-pat [variant-name symbol?] [binding variable?] ...) ctor-pat?]{
+@defproc[(ctor-pat [variant-name symbol?] [binding any/c] ...) ctor-pat?]{
 A pattern that matches a variant and binds its fields.}
 
 @subsection{Type References and Pointers}
 
-@defproc[(type-ref [name symbol?]) type-ref?]{
+@defproc[(type-ref [name symbol?]) any/c]{
 Reference a user-defined type (record or union) by name.}
 
-@defproc[(ptr-type [element ir-type?]) ptr-type?]{
+@defproc[(ptr-type [element any/c]) any/c]{
 A pointer type.}
 
 @; ===========================================================================
