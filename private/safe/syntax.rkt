@@ -158,7 +158,7 @@
   (define (transform-expr stx type-env rec-names variant-names)
     (define (tx1 e) (tx e type-env rec-names variant-names))
     (define (tx1* es) (tx* es type-env rec-names variant-names))
-    (syntax-case stx (if let match)
+    (syntax-case stx (if let match cond else)
       ;; Literal integer
       [val (exact-integer? (syntax-e #'val))
        #`(lit #,(syntax-e #'val) i32)]
@@ -174,6 +174,28 @@
       ;; If expression
       [(if c t e)
        #`(if-form #,(tx1 #'c) #,(tx1 #'t) #,(tx1 #'e))]
+
+      ;; Cond expression — expand to nested if-forms
+      [(cond clause ...)
+       (let ([clauses (syntax->list #'(clause ...))])
+         (let expand-cond ([remaining clauses])
+           (cond
+             [(null? remaining)
+              (raise-syntax-error 'define-llvm-module
+                                  "cond must have an else clause" stx)]
+             ;; [else expr]
+             [(syntax-case (car remaining) (else)
+                [(else body) #t]
+                [_ #f])
+              (syntax-case (car remaining) (else)
+                [(else body) (tx1 #'body)])]
+             ;; [test expr]
+             [else
+              (syntax-case (car remaining) ()
+                [[test body]
+                 #`(if-form #,(tx1 #'test)
+                            #,(tx1 #'body)
+                            #,(expand-cond (cdr remaining)))])])))]
 
       ;; Named let
       [(let loop-name ([var : type init] ...) body-expr ...)

@@ -264,9 +264,14 @@
   (define t (lit-type expr))
   (define v (lit-value expr))
   (define tag (prim-type-tag t))
-  (if (memq tag '(f32 f64))
-      (LLVM-Const-Real (type->llvm t (ctx)) (exact->inexact v))
-      (LLVM-Const-Int (type->llvm t (ctx)) v 0)))
+  (cond
+    [(memq tag '(f32 f64))
+     (LLVM-Const-Real (type->llvm t (ctx)) (exact->inexact v))]
+    [else
+     ;; For negative integers, convert to unsigned two's complement.
+     (define bits (case tag [(i1) 1] [(i8) 8] [(i16) 16] [(i32) 32] [(i64) 64] [else 64]))
+     (define uv (if (< v 0) (+ (expt 2 bits) v) v))
+     (LLVM-Const-Int (type->llvm t (ctx)) uv 0)]))
 
 ;; ---- Operators -------------------------------------------------------------
 

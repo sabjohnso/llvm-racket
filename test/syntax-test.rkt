@@ -87,4 +87,27 @@
         (match (Some x)
           [(Some v) (+ v v)]
           [(None) 0])))
-    (check-equal? (call m 'double-or-zero 21) 42)))
+    (check-equal? (call m 'double-or-zero 21) 42))
+
+  (test-case "macro: cond expression"
+    (define-llvm-module m
+      (: classify (-> Int32 Int32))
+      (define (classify x)
+        (cond
+          [(< x 0)  -1]
+          [(= x 0)   0]
+          [else       1])))
+    (check-equal? (call m 'classify -5) -1)
+    (check-equal? (call m 'classify 0) 0)
+    (check-equal? (call m 'classify 42) 1))
+
+  (test-case "macro: cond with computation in clauses"
+    (define-llvm-module m
+      (: abs-val (-> Int32 Int32))
+      (define (abs-val x)
+        (cond
+          [(< x 0) (- 0 x)]
+          [else     x])))
+    (check-equal? (call m 'abs-val -7) 7)
+    (check-equal? (call m 'abs-val 5) 5)
+    (check-equal? (call m 'abs-val 0) 0)))
