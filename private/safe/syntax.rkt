@@ -226,6 +226,25 @@
                             #,(tx1 #'body)
                             #,(expand-cond (cdr remaining)))])])))]
 
+      ;; Simple let (non-named): (let ([v : T expr] ...) body ...)
+      ;; Expand to named-bindings with a fresh unused loop name.
+      ;; The body never recurses, so it's just variable bindings.
+      [(let ([var : type init] ...) body-expr ...)
+       (not (identifier? (car (syntax->list #'([var : type init] ...)))))
+       (let* ([vars (syntax->list #'(var ...))]
+              [types (syntax->list #'(type ...))]
+              [inits (syntax->list #'(init ...))]
+              [bodies (syntax->list #'(body-expr ...))]
+              [binds (map (lambda (v t i)
+                            #`(bind (variable '#,(syntax-e v)
+                                              #,(type-name->repr t))
+                                    #,(tx1 i)))
+                          vars types inits)]
+              [body-stxs (transform-body bodies type-env rec-names variant-names)])
+         #`(named-bindings '%let
+                           (list #,@binds)
+                           (body #,@body-stxs)))]
+
       ;; Named let
       [(let loop-name ([var : type init] ...) body-expr ...)
        (identifier? #'loop-name)

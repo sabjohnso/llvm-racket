@@ -143,4 +143,31 @@
       (define (add a b) (+ a b))
       (define (inc [x : Int32]) (add x 1)))
     (check-equal? (call m 'add 3 4) 7)
+    (check-equal? (call m 'inc 9) 10))
+
+  ;; ---- Simple let bindings ---------------------------------------------------
+
+  (test-case "macro: simple let"
+    (define-llvm-module m
+      (define (dist-sq [ax : Float64] [ay : Float64]
+                       [bx : Float64] [by : Float64])
+        (let ([dx : Float64 (- ax bx)]
+              [dy : Float64 (- ay by)])
+          (+ (* dx dx) (* dy dy)))))
+    (check-= (call m 'dist-sq 1.0 2.0 4.0 6.0) 25.0 0.0))
+
+  (test-case "macro: nested let"
+    (define-llvm-module m
+      (define (f [x : Int32])
+        (let ([a : Int32 (+ x 1)])
+          (let ([b : Int32 (* a 2)])
+            (+ a b)))))
+    ;; f(3) = a=4, b=8, 4+8=12
+    (check-equal? (call m 'f 3) 12))
+
+  (test-case "macro: let with single binding"
+    (define-llvm-module m
+      (define (inc [x : Int32])
+        (let ([y : Int32 1])
+          (+ x y))))
     (check-equal? (call m 'inc 9) 10)))
