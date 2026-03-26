@@ -170,4 +170,35 @@
       (define (inc [x : Int32])
         (let ([y : Int32 1])
           (+ x y))))
-    (check-equal? (call m inc 9) 10)))
+    (check-equal? (call m inc 9) 10))
+
+  ;; ---- Float cross-function call ------------------------------------------------
+
+  (test-case "standalone : raises helpful error"
+    (check-exn
+     #rx"can only be used inside define-llvm-module"
+     (lambda () (eval '(: sqr (-> Float64 Float64))
+                      (module->namespace 'llvm/private/safe/syntax)))))
+
+  (test-case "error: extra parens around params gives clear message"
+    ;; User wrote (define (f ([x : T])) ...) with extra parens around params.
+    ;; Should get a clear error, not "map: all lists must have same size".
+    (check-exn
+     #rx"parameter count.*does not match"
+     (lambda ()
+       (eval '(define-llvm-module m
+                (: f (-> Int32 Int32 Int32))
+                (define (f (a b)) (+ a b)))
+             (module->namespace 'llvm/private/safe/syntax)))))
+
+  (test-case "inferred: float cross-function call in arithmetic"
+    ;; Exact scenario from REPL: sqr returns Float64, used in + in another function
+    (define-llvm-module m
+      (define (sqr [x : Float64]) (* x x))
+      (define-record Point ([x : Float64] [y : Float64]))
+      (define (distance-sq [p : Point] [q : Point])
+        (let ([dx : Float64 (- (Point-x p) (Point-x q))]
+              [dy : Float64 (- (Point-y p) (Point-y q))])
+          (+ (sqr dx) (sqr dy)))))
+    ;; Records are passed as lists of field values
+    (check-= (call m distance-sq '(1.0 2.0) '(4.0 6.0)) 25.0 0.0)))

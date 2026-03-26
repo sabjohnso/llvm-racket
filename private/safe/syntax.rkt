@@ -4,7 +4,14 @@
                      racket/list
                      racket/syntax))
 
-(provide define-llvm-module)
+(provide define-llvm-module
+         : ->)
+
+;; Auxiliary syntax keywords — only meaningful inside define-llvm-module.
+(define-syntax (: stx)
+  (raise-syntax-error ': "can only be used inside define-llvm-module" stx))
+(define-syntax (-> stx)
+  (raise-syntax-error '-> "can only be used inside define-llvm-module" stx))
 
 ;; The macro collects type annotations and definitions, then expands
 ;; to a make-llvm-module call with the runtime API forms.
@@ -120,6 +127,16 @@
                                                 (format "missing type annotation for ~a" fn-name)
                                                 (car remaining)))
                           (second type-info)))]
+                   [_ (unless (= (length arg-names) (length param-types))
+                        (raise-syntax-error
+                         'define-llvm-module
+                         (format "parameter count for ~a does not match type annotation: ~a parameter~a but ~a type~a"
+                                 fn-name
+                                 (length arg-names)
+                                 (if (= (length arg-names) 1) "" "s")
+                                 (length param-types)
+                                 (if (= (length param-types) 1) "" "s"))
+                         (car remaining)))]
                    [formals-stx
                     #`(formals #,@(map (lambda (n t)
                                          #`(variable '#,n #,t))

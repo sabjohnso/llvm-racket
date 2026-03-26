@@ -87,4 +87,18 @@
     (define-llvm-module m
       (: do-nothing (-> Void))
       (define (do-nothing) (void)))
-    (check-equal? (call m do-nothing) (void))))
+    (check-equal? (call m do-nothing) (void)))
+
+  ;; ---- Float detection for cross-function calls --------------------------------
+
+  (test-case "float: cross-function call result used in arithmetic"
+    ;; sqr(x) = x * x, distance_sq calls sqr and adds results
+    ;; This tests that expr-is-float? correctly identifies app results as float
+    (define m (make-llvm-module
+               (func 'sqr (formals (variable 'x f64))
+                          (body ((op '*) (ref 'x) (ref 'x))))
+               (func 'distance-sq (formals (variable 'dx f64) (variable 'dy f64))
+                                  (body ((op '+) (app (ref 'sqr) (ref 'dx))
+                                                 (app (ref 'sqr) (ref 'dy)))))))
+    (check-= (call m sqr 3.0) 9.0 0.0)
+    (check-= (call m distance-sq 3.0 4.0) 25.0 0.0)))

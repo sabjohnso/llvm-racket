@@ -12,6 +12,7 @@
 (provide
  ;; Macro layer
  define-llvm-module
+ : ->
 
  ;; Runtime API: module construction and execution
  make-llvm-module

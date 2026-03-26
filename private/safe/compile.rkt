@@ -282,22 +282,36 @@
 
 ;; ---- Operators -------------------------------------------------------------
 
+(define (ir-type-is-float? t)
+  (and t (prim-type? t) (memq (prim-type-tag t) '(f32 f64))))
+
 (define (expr-is-float? expr)
   (cond
-    [(lit? expr) (memq (prim-type-tag (lit-type expr)) '(f32 f64))]
+    [(lit? expr) (ir-type-is-float? (lit-type expr))]
     [(ref? expr)
-     (define t (lookup-type (ref-name expr)))
-     (and t (prim-type? t) (memq (prim-type-tag t) '(f32 f64)))]
+     (ir-type-is-float? (lookup-type (ref-name expr)))]
     [(op-app? expr)
      (and (pair? (op-app-args expr))
           (expr-is-float? (car (op-app-args expr))))]
+    [(icmp-app? expr) #f]  ; comparisons return i1
+    [(fcmp-app? expr) #f]
+    [(if-form? expr) (expr-is-float? (if-form-then expr))]
+    [(named-bindings? expr)
+     ;; Check the body's last expression
+     (define exprs (body-exprs (named-bindings-body expr)))
+     (and (pair? exprs) (expr-is-float? (last exprs)))]
+    [(app? expr)
+     ;; Look up callee's return type in func-env
+     (define callee (app-callee expr))
+     (and (ref? callee)
+          (let ([entry (assq (ref-name callee) (current-func-env))])
+            (and entry (ir-type-is-float? (cadr (cdr entry))))))]
     [(field-ref? expr)
-     ;; Look up the field's declared type
      (define info (hash-ref (current-rec-types) (field-ref-type-name expr) #f))
      (and info
           (let ([fields (rec-type-info-fields info)])
             (define f (assq (field-ref-field-name expr) fields))
-            (and f (prim-type? (cdr f)) (memq (prim-type-tag (cdr f)) '(f32 f64)))))]
+            (and f (ir-type-is-float? (cdr f)))))]
     [else #f]))
 
 (define (emit-op expr)
