@@ -20,7 +20,11 @@
          LLVM-Orc-LLJIT-Get-Execution-Session
          LLVM-Orc-LLJIT-Get-Triple-String
          LLVM-Orc-LLJIT-Add-LLVM-IR-Module
-         LLVM-Orc-LLJIT-Lookup)
+         LLVM-Orc-LLJIT-Lookup
+         ;; Process symbol resolution
+         LLVM-Orc-LLJIT-Get-Global-Prefix
+         LLVM-Orc-Create-Dynamic-Library-Search-Generator-For-Process
+         LLVM-Orc-JIT-Dylib-Add-Generator)
 
 ;; ---- Thread-Safe Context ---------------------------------------------------
 
@@ -144,3 +148,35 @@
                (define-values (err addr) (proc jit name))
                (check-llvm-error-ref 'LLVM-Orc-LLJIT-Lookup err)
                addr))))
+
+;; ---- Process Symbol Resolution -----------------------------------------------
+;; Allow the JIT to find symbols from the host process (e.g., libm functions).
+
+(define-llvm LLVM-Orc-LLJIT-Get-Global-Prefix
+  (_fun _LLVM-Orc-LLJIT-Ref -> _byte))
+
+;; LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(
+;;   LLVMOrcDefinitionGeneratorRef *Result,
+;;   char GlobalPrefix, void *Filter, void *FilterCtx)
+;; → LLVMErrorRef
+(define-llvm LLVM-Orc-Create-Dynamic-Library-Search-Generator-For-Process
+  (_fun (gen : (_ptr o _LLVM-Orc-Definition-Generator-Ref))
+        _byte       ; global prefix
+        _pointer    ; filter (NULL = accept all)
+        _pointer    ; filter ctx (NULL)
+        -> (err : _pointer)
+        -> (values err gen))
+  #:wrap (let ()
+           (lambda (proc)
+             (lambda (prefix)
+               (define-values (err gen) (proc prefix #f #f))
+               (check-llvm-error-ref
+                'LLVM-Orc-Create-Dynamic-Library-Search-Generator-For-Process err)
+               gen))))
+
+;; LLVMOrcJITDylibAddGenerator(LLVMOrcJITDylibRef, LLVMOrcDefinitionGeneratorRef)
+;; Transfers ownership of the generator to the dylib.
+(define-llvm LLVM-Orc-JIT-Dylib-Add-Generator
+  (_fun _LLVM-Orc-JIT-Dylib-Ref
+        _LLVM-Orc-Definition-Generator-Ref
+        -> _void))

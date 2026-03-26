@@ -3,6 +3,7 @@
 (require ffi/unsafe
          racket/list
          "repr.rkt"
+         "library.rkt"
          "type-check.rkt"
          "compile.rkt"
          "../ffi/lib.rkt"
@@ -25,11 +26,17 @@
 
 ;; ---- make-llvm-module ------------------------------------------------------
 
-(define (make-llvm-module #:optimize [optimize "default<O2>"] . decls)
+(define (make-llvm-module #:optimize [optimize "default<O2>"]
+                          #:include [includes '()]
+                          . decls)
   (Initialize-Native-Target!)
 
+  ;; Splice included library declarations before user declarations
+  (define all-decls
+    (append (append-map llvm-library-decls includes) decls))
+
   ;; Compile to LLVM IR
-  (define cm (compile-module decls))
+  (define cm (compile-module all-decls))
   (define llvm-mod (compiled-module-llvm-module cm))
   (define ctx (compiled-module-context cm))
   (define ir (compiled-module-ir cm))
@@ -51,15 +58,26 @@
   ;; Create a fresh JIT per module to avoid symbol conflicts
   (define jit (LLVM-Orc-Create-LLJIT #f))
 
+  ;; Allow JIT to resolve host process symbols (e.g., libm for math intrinsics)
+  (define dylib (LLVM-Orc-LLJIT-Get-Main-JIT-Dylib jit))
+  (define prefix (LLVM-Orc-LLJIT-Get-Global-Prefix jit))
+  (define gen (LLVM-Orc-Create-Dynamic-Library-Search-Generator-For-Process prefix))
+  (LLVM-Orc-JIT-Dylib-Add-Generator dylib gen)
+
   ;; Wrap in thread-safe module and add to JIT
   (define ts-ctx (LLVM-Orc-Create-New-Thread-Safe-Context))
   (define ts-mod (LLVM-Orc-Create-New-Thread-Safe-Module llvm-mod ts-ctx))
-  (define dylib (LLVM-Orc-LLJIT-Get-Main-JIT-Dylib jit))
   (LLVM-Orc-LLJIT-Add-LLVM-IR-Module jit dylib ts-mod)
 
-  ;; Build func-env for call dispatch (with return types)
+  ;; Build func-env for call dispatch (with return types).
+  ;; Seed with intrinsic signatures so user func validation can reference them.
+  (define intrinsic-env
+    (for/list ([i (in-list (filter intrinsic-func? all-decls))])
+      (cons (intrinsic-func-name i)
+            (list (intrinsic-func-param-types i)
+                  (intrinsic-func-ret-type i)))))
   (define func-env
-    (let loop ([remaining (filter func? decls)] [env '()])
+    (let loop ([remaining (filter func? all-decls)] [env intrinsic-env])
       (if (null? remaining)
           env
           (let* ([f (car remaining)]
@@ -71,7 +89,7 @@
                                 env)])
             (loop (cdr remaining) new-env)))))
 
-  (safe-module jit func-env ir decls))
+  (safe-module jit func-env ir all-decls))
 
 ;; ---- call ------------------------------------------------------------------
 

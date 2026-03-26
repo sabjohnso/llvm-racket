@@ -1,6 +1,6 @@
 #lang scribble/manual
 @require[@for-label[llvm/unsafe
-                    llvm/safe
+                    (except-in llvm/safe ->)
                     ffi/unsafe
                     racket/base]]
 
@@ -168,6 +168,54 @@ optimization pipeline.  You can customize this:
 (make-llvm-module #:optimize #f ...)
 ]
 
+@subsection{Math Library}
+
+The @racket[math-lib] library provides common math functions backed by
+LLVM intrinsics.  Include it in your module with @racket[include]:
+
+@racketblock[
+(require llvm/safe)
+
+(define-llvm-module m
+  (include math-lib)
+  (define (hyp [x : Float64] [y : Float64])
+    (sqrt (+ (* x x) (* y y)))))
+
+(call m hyp 3.0 4.0) (code:comment "=> 5.0")
+]
+
+Available functions (all operate on @racket[Float64]):
+
+@tabular[#:sep @hspace[2]
+  (list (list @bold{Function} @bold{Description} @bold{Arity})
+        (list @tt{sqrt}  "Square root" "1")
+        (list @tt{abs}   "Absolute value" "1")
+        (list @tt{pow}   "Exponentiation" "2")
+        (list @tt{floor} "Floor" "1")
+        (list @tt{ceil}  "Ceiling" "1")
+        (list @tt{round} "Round to nearest" "1")
+        (list @tt{sin}   "Sine" "1")
+        (list @tt{cos}   "Cosine" "1")
+        (list @tt{exp}   "Natural exponential" "1")
+        (list @tt{log}   "Natural logarithm" "1")
+        (list @tt{log2}  "Base-2 logarithm" "1")
+        (list @tt{log10} "Base-10 logarithm" "1")
+        (list @tt{min}   "Minimum of two values" "2")
+        (list @tt{max}   "Maximum of two values" "2"))]
+
+With the runtime API, use @racket[#:include]:
+
+@racketblock[
+(make-llvm-module
+ #:include (list math-lib)
+ (func 'f (formals (variable 'x f64))
+       (body (app (ref 'sqrt) (ref 'x)))))
+]
+
+User-defined functions shadow library functions with the same name.
+You can also create custom libraries with @racket[llvm-library] and
+@racket[intrinsic-func].
+
 @subsection{Using the Runtime API}
 
 The runtime API is the code generator target.  It builds an IR
@@ -204,12 +252,16 @@ and type annotations.  The module is compiled, optimized, and
 JIT-compiled automatically.  Binds @racket[name] to a @racket[safe-module?].}
 
 @defproc[(make-llvm-module [#:optimize optimize (or/c string? #f) "default<O2>"]
+                           [#:include includes (listof llvm-library?) '()]
                            [decl any/c] ...)
          safe-module?]{
 Compile a list of IR declarations into a JIT-compiled module.  Each
-@racket[decl] is a @racket[func], @racket[rec], @racket[sum], or
-@tt{define-global} form.  Pass @racket[#:optimize #f] to disable
-optimization, or a pipeline string like @racket["default<O3>"].}
+@racket[decl] is a @racket[func], @racket[rec], @racket[sum],
+@racket[intrinsic-func], or @tt{define-global} form.  Pass
+@racket[#:include] with a list of @racket[llvm-library] values (e.g.,
+@racket[math-lib]) to include library declarations.  Pass
+@racket[#:optimize #f] to disable optimization, or a pipeline string
+like @racket["default<O3>"].}
 
 @defform[(call m fn-name arg ...)]{
 Call a JIT-compiled function by name.  @racket[fn-name] is an unquoted
@@ -351,6 +403,26 @@ Reference a user-defined type (record or union) by name.}
 
 @defproc[(ptr-type [element any/c]) any/c]{
 A pointer type.}
+
+@subsection{Libraries and Intrinsics}
+
+@defstruct*[llvm-library ([name symbol?] [decls (listof any/c)]) #:transparent]{
+A reusable collection of declarations that can be included in a module
+via @racket[#:include].}
+
+@defthing[math-lib llvm-library?]{
+A built-in library of math functions backed by LLVM intrinsics.  All
+functions operate on @racket[f64] (@tt{Float64}).  See the Math Library
+section in the guide for the full list.}
+
+@defstruct*[intrinsic-func
+  ([name symbol?]
+   [llvm-name string?]
+   [param-types (listof any/c)]
+   [ret-type any/c]) #:transparent]{
+Declares an LLVM intrinsic function.  @racket[name] is the user-facing
+symbol, @racket[llvm-name] is the LLVM intrinsic name (e.g.,
+@racket["llvm.sqrt.f64"]).  Used to build custom libraries.}
 
 @; ===========================================================================
 @section{Unsafe FFI Guide}
@@ -1844,6 +1916,25 @@ Add a thread-safe module to @racket[dylib].  Takes ownership of
 Look up a symbol by @racket[name] and return its address as a
 @racket[_uint64].  Raises @racket[exn:fail] if the symbol is not found.
 Cast the result to a callable function pointer with @racket[cast].}
+
+@defproc[(LLVM-Orc-LLJIT-Get-Global-Prefix [jit _LLVM-Orc-LLJIT-Ref]) byte?]{
+Get the global symbol prefix character for this LLJIT instance.}
+
+@defproc[(LLVM-Orc-Create-Dynamic-Library-Search-Generator-For-Process
+           [prefix byte?])
+         _LLVM-Orc-Definition-Generator-Ref]{
+Create a definition generator that resolves symbols from the host process
+(shared libraries, libm, etc.).  @racket[prefix] should be the value
+returned by @racket[LLVM-Orc-LLJIT-Get-Global-Prefix].  Raises
+@racket[exn:fail] on error.}
+
+@defproc[(LLVM-Orc-JIT-Dylib-Add-Generator
+           [dylib _LLVM-Orc-JIT-Dylib-Ref]
+           [gen _LLVM-Orc-Definition-Generator-Ref])
+         void?]{
+Add a definition generator to @racket[dylib].  Transfers ownership of
+@racket[gen] to the dylib.  This allows the JIT to resolve external
+symbols (e.g., libm functions used by math intrinsics).}
 
 @; ---------------------------------------------------------------------------
 @subsection{Module Iteration}

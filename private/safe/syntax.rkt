@@ -5,13 +5,15 @@
                      racket/syntax))
 
 (provide define-llvm-module
-         : ->)
+         : -> include)
 
 ;; Auxiliary syntax keywords — only meaningful inside define-llvm-module.
 (define-syntax (: stx)
   (raise-syntax-error ': "can only be used inside define-llvm-module" stx))
 (define-syntax (-> stx)
   (raise-syntax-error '-> "can only be used inside define-llvm-module" stx))
+(define-syntax (include stx)
+  (raise-syntax-error 'include "can only be used inside define-llvm-module" stx))
 
 ;; The macro collects type annotations and definitions, then expands
 ;; to a make-llvm-module call with the runtime API forms.
@@ -19,11 +21,13 @@
 (define-syntax (define-llvm-module stx)
   (syntax-case stx ()
     [(_ name body ...)
-     ;; Process body forms into declarations
-     (let ([decls (process-module-body (syntax->list #'(body ...)))])
-       (with-syntax ([(decl ...) decls])
-         #'(define name
-             (make-llvm-module decl ...))))]))
+     ;; Process body forms into declarations and includes
+     (let-values ([(decls includes) (process-module-body (syntax->list #'(body ...)))])
+       (with-syntax ([(decl ...) decls]
+                     [(lib ...) includes])
+         (if (null? includes)
+             #'(define name (make-llvm-module decl ...))
+             #'(define name (make-llvm-module #:include (list lib ...) decl ...)))))]))
 
 (begin-for-syntax
   ;; Type name mapping
@@ -48,16 +52,27 @@
     (memq sym '(= != < <= > >=)))
 
   ;; Process module body: collect type annotations and definitions.
-  ;; Returns a list of syntax objects for make-llvm-module arguments.
+  ;; Returns two values: (list-of-decl-syntax, list-of-include-syntax).
   (define (process-module-body forms)
     (let loop ([remaining forms]
                [type-env '()]      ; ((name param-types ret-type) ...)
                [decls '()]
+               [includes '()]      ; library expressions for #:include
                [rec-names '()]     ; known record type names
                [variant-names '()] ; known variant constructor names
                [union-names '()])  ; known union type names
       (cond
-        [(null? remaining) (reverse decls)]
+        [(null? remaining) (values (reverse decls) (reverse includes))]
+
+        ;; Include a library: (include expr)
+        [(syntax-case (car remaining) (include)
+           [(include _) #t]
+           [_ #f])
+         (syntax-case (car remaining) (include)
+           [(include lib-expr)
+            (loop (cdr remaining) type-env decls
+                  (cons #'lib-expr includes)
+                  rec-names variant-names union-names)])]
 
         ;; Type annotation: (: name (-> Arg ... Ret))
         [(and (syntax-case (car remaining) (:)
@@ -70,7 +85,7 @@
                    [fn-name (syntax-e #'name)])
               (loop (cdr remaining)
                     (cons (list fn-name param-types ret-type) type-env)
-                    decls rec-names variant-names union-names))])]
+                    decls includes rec-names variant-names union-names))])]
 
         ;; Record definition: (define-record Name ([field : Type] ...))
         [(syntax-case (car remaining) (define-record)
@@ -87,7 +102,7 @@
                                 (syntax->list #'(clause ...)))]
                    [decl #`(rec '#,rname #,@fields)])
               (loop (cdr remaining) type-env
-                    (cons decl decls)
+                    (cons decl decls) includes
                     (cons rname rec-names)
                     variant-names union-names))])]
 
@@ -153,7 +168,7 @@
                     (cons (list fn-name param-types #f) type-env)
                     type-env))
               (loop (cdr remaining) new-type-env
-                    (cons decl decls)
+                    (cons decl decls) includes
                     rec-names variant-names union-names))])]
 
         ;; Union definition: (union Name [Variant ([field : Type] ...)] ...)
@@ -182,7 +197,7 @@
                    [new-variant-names (append (map car variants) variant-names)]
                    [decl #`(sum '#,uname #,@(map cdr variants))])
               (loop (cdr remaining) type-env
-                    (cons decl decls)
+                    (cons decl decls) includes
                     rec-names new-variant-names
                     (cons uname union-names)))])]
 

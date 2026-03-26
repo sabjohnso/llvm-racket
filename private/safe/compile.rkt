@@ -54,9 +54,10 @@
   (define ctx (LLVM-Context-Create))
   (define llvm-mod (LLVM-Module-Create-With-Name-In-Context "safe-module" ctx))
 
-  (define funcs (filter func? decls))
-  (define recs  (filter rec? decls))
-  (define sums  (filter sum? decls))
+  (define funcs      (filter func? decls))
+  (define recs       (filter rec? decls))
+  (define sums       (filter sum? decls))
+  (define intrinsics (filter intrinsic-func? decls))
 
   ;; Compile record type declarations
   (define rec-types (make-hash))
@@ -121,10 +122,18 @@
     (for ([v (in-list (sum-variants s))])
       (hash-set! variant->sum (variant-name v) (sum-name s))))
 
+  ;; Seed func-env with intrinsic function signatures so user functions
+  ;; can call them and type-check correctly.
+  (define intrinsic-env
+    (for/list ([i (in-list intrinsics)])
+      (cons (intrinsic-func-name i)
+            (list (intrinsic-func-param-types i)
+                  (intrinsic-func-ret-type i)))))
+
   ;; Build func-env incrementally: validate each function, accumulating
   ;; the env with known return types so later functions can call earlier ones.
   (define func-env
-    (let loop ([remaining funcs] [env '()])
+    (let loop ([remaining funcs] [env intrinsic-env])
       (if (null? remaining)
           env
           (let* ([f (car remaining)]
@@ -134,9 +143,19 @@
                  [new-env (cons (cons (func-name f) (list param-types ret-type)) env)])
             (loop (cdr remaining) new-env)))))
 
-  ;; Declare all LLVM functions
+  ;; Declare LLVM intrinsic functions first (user funcs may shadow them)
   (define llvm-funcs (make-hash))
   (define llvm-func-types (make-hash))
+  (for ([i (in-list intrinsics)])
+    (define llvm-pts (map (lambda (t) (type->llvm t ctx))
+                          (intrinsic-func-param-types i)))
+    (define llvm-rt (type->llvm (intrinsic-func-ret-type i) ctx))
+    (define ft (LLVM-Function-Type llvm-rt llvm-pts (length llvm-pts) 0))
+    (define llvm-fn (LLVM-Add-Function llvm-mod (intrinsic-func-llvm-name i) ft))
+    (hash-set! llvm-funcs (intrinsic-func-name i) llvm-fn)
+    (hash-set! llvm-func-types (intrinsic-func-name i) ft))
+
+  ;; Declare user functions (shadows intrinsics with the same name)
   (for ([f (in-list funcs)])
     (define entry (assq (func-name f) func-env))
     (define param-types (car (cdr entry)))

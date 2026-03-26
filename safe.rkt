@@ -7,12 +7,13 @@
 
 (require "private/safe/syntax.rkt"
          "private/safe/repr.rkt"
+         "private/safe/library.rkt"
          "private/safe/module.rkt")
 
 (provide
  ;; Macro layer
  define-llvm-module
- : ->
+ : -> include
 
  ;; Runtime API: module construction and execution
  make-llvm-module
@@ -20,6 +21,16 @@
  call-fn
  safe-module?
  safe-module-ir
+
+ ;; Libraries
+ llvm-library llvm-library?
+ llvm-library-name llvm-library-decls
+ math-lib
+
+ ;; Intrinsic function declarations
+ intrinsic-func intrinsic-func?
+ intrinsic-func-name intrinsic-func-llvm-name
+ intrinsic-func-param-types intrinsic-func-ret-type
 
  ;; IR representation: types
  i1 i8 i16 i32 i64 f32 f64 void-type

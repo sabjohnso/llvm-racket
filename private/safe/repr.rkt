@@ -41,7 +41,11 @@
          bind bind? bind-variable bind-init
          ;; Globals
          define-global define-global? define-global-name
-         define-global-type define-global-init)
+         define-global-type define-global-init
+         ;; Intrinsic function declarations
+         intrinsic-func intrinsic-func?
+         intrinsic-func-name intrinsic-func-llvm-name
+         intrinsic-func-param-types intrinsic-func-ret-type)
 
 ;; ---- Type representations --------------------------------------------------
 
@@ -185,3 +189,12 @@
 ;; ---- Global values ---------------------------------------------------------
 
 (struct define-global (name type init) #:transparent)
+
+;; ---- Intrinsic function declarations ----------------------------------------
+
+;; Declares an LLVM intrinsic to be called by user functions.
+;; name:        user-facing symbol (e.g., 'sqrt)
+;; llvm-name:   LLVM intrinsic string (e.g., "llvm.sqrt.f64")
+;; param-types: list of ir-type
+;; ret-type:    ir-type
+(struct intrinsic-func (name llvm-name param-types ret-type) #:transparent)
