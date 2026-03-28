@@ -66,6 +66,10 @@
          LLVM-Build-Load2
          LLVM-Build-Store
          LLVM-Build-GEP2
+         ;; Vector
+         LLVM-Build-Extract-Element
+         LLVM-Build-Insert-Element
+         LLVM-Build-Shuffle-Vector
          ;; Terminators
          LLVM-Build-Ret
          LLVM-Build-Ret-Void
@@ -260,6 +264,23 @@
         (_list i _LLVM-Value-Ref)
         _uint
         _string
+        -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+;; ---- Vector operations -----------------------------------------------------
+
+(define-llvm LLVM-Build-Extract-Element
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string
+        -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Insert-Element
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string
+        -> _LLVM-Value-Ref)
+  #:wrap (lambda (proc) (instruction-wrap proc)))
+
+(define-llvm LLVM-Build-Shuffle-Vector
+  (_fun _LLVM-Builder-Ref _LLVM-Value-Ref _LLVM-Value-Ref _LLVM-Value-Ref _string
         -> _LLVM-Value-Ref)
   #:wrap (lambda (proc) (instruction-wrap proc)))
 

@@ -201,4 +201,92 @@
               [dy : Float64 (- (Point-y p) (Point-y q))])
           (+ (sqr dx) (sqr dy)))))
     ;; Records are passed as lists of field values
-    (check-= (call m distance-sq '(1.0 2.0) '(4.0 6.0)) 25.0 0.0)))
+    (check-= (call m distance-sq '(1.0 2.0) '(4.0 6.0)) 25.0 0.0))
+
+  ;; ---- Generated Racket structs for records -----------------------------------
+
+  (test-case "macro: define-record generates Racket struct"
+    (define-llvm-module m2
+      (define-record Point ([x : Float64] [y : Float64]))
+      (define (get-x [p : Point]) (Point-x p)))
+    ;; Point struct should exist as a Racket struct
+    (define p (Point 3.0 4.0))
+    (check-true (Point? p))
+    (check-= (Point-x p) 3.0 0.0)
+    (check-= (Point-y p) 4.0 0.0))
+
+  (test-case "contract: record rejects wrong field type"
+    (define-llvm-module m-ct
+      (define-record Pt ([x : Float64] [y : Float64]))
+      (define (get-x [p : Pt]) (Pt-x p)))
+    (check-exn #rx"expected Float64"
+               (lambda () (Pt "hello" 2.0)))
+    (check-exn #rx"expected Float64"
+               (lambda () (Pt 3.0 42))))
+
+  (test-case "contract: union variant rejects wrong field type"
+    (define-llvm-module m-ct2
+      (union Opt
+        [Just ([value : Int32])]
+        [Nothing])
+      (define (unwrap [x : Opt]) (match x [(Just v) v] [(Nothing) 0])))
+    (check-exn #rx"expected Int32"
+               (lambda () (Just "not-an-int"))))
+
+  (test-case "macro: union generates Racket variant structs"
+    (define-llvm-module m3
+      (union Opt-Int
+        [Some ([value : Int32])]
+        [None])
+      (: unwrap (-> Int32 Int32))
+      (define (unwrap x)
+        (match (Some x)
+          [(Some v) v]
+          [(None) 0])))
+    ;; Variant structs should exist
+    (check-true (Some? (Some 42)))
+    (check-equal? (Some-value (Some 42)) 42)
+    (check-true (None? (None))))
+
+  ;; ---- Struct-based marshalling via call --------------------------------------
+
+  (test-case "call: pass record struct instance"
+    (define-llvm-module m4
+      (define-record Point ([x : Float64] [y : Float64]))
+      (define (get-x [p : Point]) (Point-x p)))
+    (check-= (call m4 get-x (Point 3.0 4.0)) 3.0 0.0))
+
+  (test-case "call: pass union variant struct instance"
+    (define-llvm-module m5
+      (union Opt-Int
+        [Some ([value : Int32])]
+        [None])
+      (define (unwrap [x : Opt-Int])
+        (match x
+          [(Some v) v]
+          [(None) 0])))
+    (check-equal? (call m5 unwrap (Some 42)) 42)
+    (check-equal? (call m5 unwrap (None)) 0))
+
+  ;; ---- Return value unmarshalling --------------------------------------------
+
+  (test-case "call: function returning record gives Racket struct"
+    (define-llvm-module m6
+      (define-record Point ([x : Float64] [y : Float64]))
+      (define (make-pt [x : Float64] [y : Float64])
+        (Point x y)))
+    (define result (call m6 make-pt 3.0 4.0))
+    (check-true (Point? result))
+    (check-= (Point-x result) 3.0 0.0)
+    (check-= (Point-y result) 4.0 0.0))
+
+  (test-case "call: function returning union gives variant struct"
+    (define-llvm-module m7
+      (union Opt-Int
+        [Some ([value : Int32])]
+        [None])
+      (define (wrap [x : Int32])
+        (Some x)))
+    (define result (call m7 wrap 42))
+    (check-true (Some? result))
+    (check-equal? (Some-value result) 42)))

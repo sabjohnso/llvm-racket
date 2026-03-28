@@ -146,13 +146,43 @@ Variant constructors: @racket[(Some 42)], @racket[(None)].
 
 @subsection{Passing Records and Unions to @tt{call}}
 
-Records are passed as Racket lists matching field order.  Unions are
-passed as tagged lists:
+When you use @racket[define-llvm-module], record and union definitions
+automatically generate corresponding Racket structs.  Pass struct
+instances directly to @racket[call], and receive them back from
+functions that return records or unions:
 
 @racketblock[
-(call m get-x '(3.0 4.0))       (code:comment "Pass a Point record")
+(define-llvm-module m
+  (define-record Point ([x : Float64] [y : Float64]))
+  (define (midpoint [p : Point] [q : Point])
+    (Point (* 0.5 (+ (Point-x p) (Point-x q)))
+           (* 0.5 (+ (Point-y p) (Point-y q))))))
+
+(code:comment "Pass struct instances — field names work as accessors")
+(define result (call m midpoint (Point 0.0 0.0) (Point 4.0 6.0)))
+(Point-x result) (code:comment "=> 2.0")
+(Point-y result) (code:comment "=> 3.0")
+]
+
+Union variants also become Racket structs:
+
+@racketblock[
+(define-llvm-module m
+  (union Opt-Int [Some ([value : Int32])] [None])
+  (define (wrap [x : Int32]) (Some x)))
+
+(define r (call m wrap 42))
+(Some? r)         (code:comment "=> #t")
+(Some-value r)    (code:comment "=> 42")
+]
+
+For the runtime API (@racket[make-llvm-module] without the macro),
+records and unions can still be passed as positional lists and tagged
+lists respectively:
+
+@racketblock[
+(call m get-x '(3.0 4.0))       (code:comment "Pass a Point as field list")
 (call m unwrap '(Some 42))       (code:comment "Pass a Some variant")
-(call m unwrap '(None))          (code:comment "Pass a None variant")
 ]
 
 @subsection{Configuring Optimization}
@@ -171,7 +201,13 @@ optimization pipeline.  You can customize this:
 @subsection{Math Library}
 
 The @racket[math-lib] library provides common math functions backed by
-LLVM intrinsics.  Include it in your module with @racket[include]:
+LLVM intrinsics.  These compile to hardware instructions or optimized
+libm calls --- the LLVM optimizer can inline, vectorize, and constant-fold
+them just like built-in operations.
+
+@subsubsection{Including the Math Library}
+
+Use @tt{(include math-lib)} in the macro layer:
 
 @racketblock[
 (require llvm/safe)
@@ -184,26 +220,7 @@ LLVM intrinsics.  Include it in your module with @racket[include]:
 (call m hyp 3.0 4.0) (code:comment "=> 5.0")
 ]
 
-Available functions (all operate on @racket[Float64]):
-
-@tabular[#:sep @hspace[2]
-  (list (list @bold{Function} @bold{Description} @bold{Arity})
-        (list @tt{sqrt}  "Square root" "1")
-        (list @tt{abs}   "Absolute value" "1")
-        (list @tt{pow}   "Exponentiation" "2")
-        (list @tt{floor} "Floor" "1")
-        (list @tt{ceil}  "Ceiling" "1")
-        (list @tt{round} "Round to nearest" "1")
-        (list @tt{sin}   "Sine" "1")
-        (list @tt{cos}   "Cosine" "1")
-        (list @tt{exp}   "Natural exponential" "1")
-        (list @tt{log}   "Natural logarithm" "1")
-        (list @tt{log2}  "Base-2 logarithm" "1")
-        (list @tt{log10} "Base-10 logarithm" "1")
-        (list @tt{min}   "Minimum of two values" "2")
-        (list @tt{max}   "Maximum of two values" "2"))]
-
-With the runtime API, use @racket[#:include]:
+Or use @racket[#:include] with the runtime API:
 
 @racketblock[
 (make-llvm-module
@@ -212,9 +229,188 @@ With the runtime API, use @racket[#:include]:
        (body (app (ref 'sqrt) (ref 'x)))))
 ]
 
+@subsubsection{Available Functions}
+
+All math library functions operate on @racket[Float64] values.
+
+@tabular[#:sep @hspace[2]
+  (list (list @bold{Function} @bold{LLVM Intrinsic} @bold{Description})
+        (list @tt{sqrt}  @tt{llvm.sqrt.f64}    "Square root")
+        (list @tt{abs}   @tt{llvm.fabs.f64}    "Absolute value")
+        (list @tt{pow}   @tt{llvm.pow.f64}     "Exponentiation (base, exponent)")
+        (list @tt{floor} @tt{llvm.floor.f64}   "Floor (round toward -inf)")
+        (list @tt{ceil}  @tt{llvm.ceil.f64}    "Ceiling (round toward +inf)")
+        (list @tt{round} @tt{llvm.round.f64}   "Round to nearest integer")
+        (list @tt{sin}   @tt{llvm.sin.f64}     "Sine (radians)")
+        (list @tt{cos}   @tt{llvm.cos.f64}     "Cosine (radians)")
+        (list @tt{exp}   @tt{llvm.exp.f64}     "Natural exponential (e^x)")
+        (list @tt{log}   @tt{llvm.log.f64}     "Natural logarithm (ln x)")
+        (list @tt{log2}  @tt{llvm.log2.f64}    "Base-2 logarithm")
+        (list @tt{log10} @tt{llvm.log10.f64}   "Base-10 logarithm")
+        (list @tt{min}   @tt{llvm.minnum.f64}  "Minimum of two values")
+        (list @tt{max}   @tt{llvm.maxnum.f64}  "Maximum of two values"))]
+
+@subsubsection{Examples}
+
+Gaussian function:
+
+@racketblock[
+(define-llvm-module gauss-mod
+  (include math-lib)
+  (define (gaussian [x : Float64] [mu : Float64] [sigma : Float64])
+    (let ([diff : Float64 (- x mu)]
+          [s2 : Float64 (* sigma sigma)])
+      (* (/ 1.0 (sqrt (* 6.283185307 s2)))
+         (exp (/ (* -0.5 (* diff diff)) s2))))))
+]
+
+Using @tt{pow} and @tt{log} for compound interest:
+
+@racketblock[
+(define-llvm-module finance-mod
+  (include math-lib)
+  (define (compound [principal : Float64] [rate : Float64]
+                    [n : Float64] [t : Float64])
+    (* principal (pow (+ 1.0 (/ rate n)) (* n t)))))
+]
+
+@subsubsection{Shadowing and Custom Libraries}
+
 User-defined functions shadow library functions with the same name.
-You can also create custom libraries with @racket[llvm-library] and
-@racket[intrinsic-func].
+For example, defining your own @tt{abs} for integers will override the
+library's @tt{abs} (which operates on @tt{Float64}).
+
+You can create custom libraries with @racket[llvm-library] and
+@racket[intrinsic-func]:
+
+@racketblock[
+(define my-lib
+  (llvm-library 'my-lib
+    (list (intrinsic-func 'ceil-f32  "llvm.ceil.f32"  (list f32) f32)
+          (intrinsic-func 'floor-f32 "llvm.floor.f32" (list f32) f32))))
+]
+
+@subsection{SIMD Vectors}
+
+The safe API supports generic SIMD vectors --- fixed-width LLVM vector
+types like @tt{<4 x double>}.  These map directly to hardware SIMD
+instructions (SSE, AVX, NEON) when the target supports them.  Standard
+arithmetic operators work element-wise on vectors automatically.
+
+@subsubsection{Vector Types}
+
+Write vector types as @tt{(Vec @italic{N} @italic{Type})} where @italic{N} is a
+positive integer and @italic{Type} is a primitive type:
+
+@itemlist[
+  @item{@tt{(Vec 2 Float64)} --- 2 doubles (128-bit, maps to SSE2)}
+  @item{@tt{(Vec 4 Float64)} --- 4 doubles (256-bit, maps to AVX)}
+  @item{@tt{(Vec 4 Int32)} --- 4 integers (128-bit)}
+  @item{@tt{(Vec 8 Int32)} --- 8 integers (256-bit, maps to AVX2)}
+]
+
+With the runtime API, use @racket[vec-type]:
+
+@racketblock[
+(variable 'v (vec-type f64 4)) (code:comment "<4 x double>")
+]
+
+@subsubsection{Constructing Vectors}
+
+Use @tt{vec} to build a vector from scalar values:
+
+@racketblock[
+(define-llvm-module m
+  (define (make-pair [x : Float64] [y : Float64])
+    (let ([v : (Vec 2 Float64) (vec x y)])
+      (vec-ref v 0))))
+]
+
+With the runtime API:
+
+@racketblock[
+(vec-lit f64 (list (ref 'x) (ref 'y)))
+]
+
+@subsubsection{Element Access}
+
+@tt{vec-ref} extracts a scalar element by index.  @tt{vec-set} returns a
+new vector with one element replaced:
+
+@racketblock[
+(vec-ref v 0)        (code:comment "extract first element")
+(vec-set v 2 42.0)   (code:comment "replace third element with 42.0")
+]
+
+With the runtime API:
+
+@racketblock[
+(vec-extract (ref 'v) (lit 0 i32))
+(vec-insert (ref 'v) (lit 2 i32) (lit 42.0 f64))
+]
+
+@subsubsection{Element-Wise Arithmetic}
+
+Standard operators work on vectors of matching type and size.  LLVM
+applies them element-wise, using SIMD instructions when available:
+
+@racketblock[
+(let ([a : (Vec 4 Float64) (vec 1.0 2.0 3.0 4.0)]
+      [b : (Vec 4 Float64) (vec 5.0 6.0 7.0 8.0)])
+  (* a b))
+(code:comment "=> <5.0, 12.0, 21.0, 32.0>")
+]
+
+Supported: @tt{+}, @tt{-}, @tt{*}, @tt{/} (and integer variants
+@tt{mod}, @tt{rem}, @tt{bit-and}, @tt{bit-or}, @tt{bit-xor},
+@tt{shl}, @tt{shr} for integer vector types).
+
+@subsubsection{Shuffling}
+
+@tt{vec-shuffle} selects elements from two source vectors by index:
+
+@racketblock[
+(code:comment "Interleave elements from two vectors")
+(vec-shuffle a b 0 4 1 5)
+(code:comment "Indices 0..N-1 select from a, N..2N-1 from b")
+]
+
+With the runtime API:
+
+@racketblock[
+(vec-shuffle (ref 'a) (ref 'b) '(0 4 1 5))
+]
+
+@subsubsection{Dot Product Example}
+
+A complete dot product using SIMD vectors.  Note that vectors are
+internal computation types --- function parameters and return values
+must be scalars:
+
+@racketblock[
+(define-llvm-module m
+  (define (dot4 [a0 : Float64] [a1 : Float64] [a2 : Float64] [a3 : Float64]
+                [b0 : Float64] [b1 : Float64] [b2 : Float64] [b3 : Float64])
+    (let ([a : (Vec 4 Float64) (vec a0 a1 a2 a3)]
+          [b : (Vec 4 Float64) (vec b0 b1 b2 b3)])
+      (let ([p : (Vec 4 Float64) (* a b)])
+        (+ (+ (vec-ref p 0) (vec-ref p 1))
+           (+ (vec-ref p 2) (vec-ref p 3)))))))
+
+(call m dot4 1.0 2.0 3.0 4.0  5.0 6.0 7.0 8.0) (code:comment "=> 70.0")
+]
+
+@subsubsection{Limitations}
+
+@itemlist[
+  @item{@bold{FFI boundary:} Vector types cannot be passed to or
+        returned from @racket[call].  Functions exposed to Racket must
+        take and return scalars or records.  Use vectors for internal
+        computation only.}
+  @item{@bold{Comparisons:} Element-wise vector comparisons
+        (@tt{=}, @tt{<}, etc.) are not yet supported.  Compare extracted
+        scalar elements instead.}
+]
 
 @subsection{Using the Runtime API}
 
@@ -404,25 +600,83 @@ Reference a user-defined type (record or union) by name.}
 @defproc[(ptr-type [element any/c]) any/c]{
 A pointer type.}
 
+@subsection{SIMD Vector Types and Operations}
+
+@defstruct*[vec-type ([element any/c] [count exact-positive-integer?]) #:transparent]{
+A fixed-width SIMD vector type.  @racket[element] is a primitive type
+(e.g., @racket[f64], @racket[i32]) and @racket[count] is the number of
+elements.  Compiles to LLVM's @tt{<count x element>} type.
+
+In the macro layer, write @tt{(Vec 4 Float64)}.
+
+Example: @racket[(vec-type f64 4)] represents @tt{<4 x double>}.}
+
+@defproc[(vec-lit [element-type any/c] [values (listof any/c)]) vec-lit?]{
+Construct a vector from a list of scalar expressions.  The number of
+values determines the vector width.  Compiles to a chain of LLVM
+@tt{insertelement} instructions (or a constant vector when all values
+are literals).
+
+In the macro layer, use @tt{(vec e1 e2 ...)}.  The element type is
+inferred: float literals produce @racket[f64], integer literals produce
+@racket[i32], and variable references default to @racket[f64].}
+
+@defproc[(vec-extract [vec any/c] [index any/c]) vec-extract?]{
+Extract a scalar element at @racket[index] from @racket[vec].  Returns
+the vector's element type (e.g., extracting from a @tt{(Vec 4 Float64)}
+returns @tt{Float64}).  Compiles to LLVM @tt{extractelement}.
+
+In the macro layer, use @tt{(vec-ref v i)}.}
+
+@defproc[(vec-insert [vec any/c] [index any/c] [val any/c]) vec-insert?]{
+Return a new vector with @racket[val] inserted at @racket[index].  The
+original vector is not modified --- vectors are immutable values.
+Compiles to LLVM @tt{insertelement}.
+
+In the macro layer, use @tt{(vec-set v i val)}.}
+
+@defproc[(vec-shuffle [v1 any/c] [v2 any/c] [mask (listof exact-nonneg-integer?)]) vec-shuffle?]{
+Shuffle elements from @racket[v1] and @racket[v2] according to
+@racket[mask].  Indices @tt{0} through @tt{N-1} select from @racket[v1],
+indices @tt{N} through @tt{2N-1} select from @racket[v2] (where @tt{N}
+is the vector width).  The result vector has @racket[(length mask)]
+elements.  Compiles to LLVM @tt{shufflevector}.
+
+In the macro layer, use @tt{(vec-shuffle v1 v2 i ...)}.}
+
 @subsection{Libraries and Intrinsics}
 
 @defstruct*[llvm-library ([name symbol?] [decls (listof any/c)]) #:transparent]{
 A reusable collection of declarations that can be included in a module
-via @racket[#:include].}
+via the @racket[#:include] keyword on @racket[make-llvm-module] or the
+@tt{(include lib)} form in @racket[define-llvm-module].
+
+Library declarations are prepended to user declarations, so user-defined
+functions with the same name will shadow library functions.}
 
 @defthing[math-lib llvm-library?]{
-A built-in library of math functions backed by LLVM intrinsics.  All
-functions operate on @racket[f64] (@tt{Float64}).  See the Math Library
-section in the guide for the full list.}
+A built-in library of 14 math functions backed by LLVM intrinsics.  All
+functions operate on @racket[f64] (@tt{Float64}).  Includes:
+@tt{sqrt}, @tt{abs}, @tt{pow}, @tt{floor}, @tt{ceil}, @tt{round},
+@tt{sin}, @tt{cos}, @tt{exp}, @tt{log}, @tt{log2}, @tt{log10},
+@tt{min}, @tt{max}.  See the Math Library section in the guide for
+details and examples.}
 
 @defstruct*[intrinsic-func
   ([name symbol?]
    [llvm-name string?]
    [param-types (listof any/c)]
    [ret-type any/c]) #:transparent]{
-Declares an LLVM intrinsic function.  @racket[name] is the user-facing
-symbol, @racket[llvm-name] is the LLVM intrinsic name (e.g.,
-@racket["llvm.sqrt.f64"]).  Used to build custom libraries.}
+Declares an LLVM intrinsic function for use in a library.
+@racket[name] is the user-facing symbol (used in source code),
+@racket[llvm-name] is the exact LLVM intrinsic name (e.g.,
+@racket["llvm.sqrt.f64"]).  LLVM recognizes intrinsic names
+automatically --- no special FFI bindings are needed.
+
+Example:
+@racketblock[
+(intrinsic-func 'sqrt "llvm.sqrt.f64" (list f64) f64)
+]}
 
 @; ===========================================================================
 @section{Unsafe FFI Guide}

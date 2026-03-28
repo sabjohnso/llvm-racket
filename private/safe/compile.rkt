@@ -35,6 +35,7 @@
 (define current-rec-types (make-parameter #f))  ; hash: symbol → rec-info
 (define current-sum-types  (make-parameter #f))  ; hash: symbol → sum-info
 (define current-variant->sum (make-parameter #f)) ; hash: variant-name → sum-name
+(define current-malloc     (make-parameter #f))  ; (cons malloc-fn malloc-ft)
 
 (struct loop-info (header-bb phi-nodes bind-vars) #:transparent)
 (struct rec-type-info (llvm-type fields) #:transparent)
@@ -167,6 +168,13 @@
     (hash-set! llvm-funcs (func-name f) llvm-fn)
     (hash-set! llvm-func-types (func-name f) ft))
 
+  ;; Declare malloc for heap allocation of records/unions returned across FFI.
+  ;; malloc(i64) -> ptr
+  (define i64-type (LLVM-Int64-Type-In-Context ctx))
+  (define ptr-type-llvm (LLVM-Pointer-Type-In-Context ctx 0))
+  (define malloc-ft (LLVM-Function-Type ptr-type-llvm (list i64-type) 1 0))
+  (define malloc-fn (LLVM-Add-Function llvm-mod "malloc" malloc-ft))
+
   ;; Compile each function body
   (for ([f (in-list funcs)])
     (define llvm-fn (hash-ref llvm-funcs (func-name f)))
@@ -192,7 +200,8 @@
                    [current-loops (make-hash)]
                    [current-rec-types rec-types]
                    [current-sum-types sum-types]
-                   [current-variant->sum variant->sum])
+                   [current-variant->sum variant->sum]
+                   [current-malloc (cons malloc-fn malloc-ft)])
       (define result (emit-body (func-body f)))
       ;; Emit ret or ret void depending on return type
       (define entry (assq (func-name f) func-env))
@@ -201,6 +210,58 @@
                (eq? (prim-type-tag ret-type) 'void))
           (LLVM-Build-Ret-Void bld)
           (LLVM-Build-Ret bld result))))
+
+  ;; Generate FFI wrapper functions for functions with vec-type params.
+  ;; The wrapper takes ptr params (for vectors), loads them as LLVM vectors,
+  ;; calls the real function, and returns the scalar result.
+  (for ([f (in-list funcs)])
+    (define entry (assq (func-name f) func-env))
+    (define param-types (car (cdr entry)))
+    (define ret-type (cadr (cdr entry)))
+    (define has-vec-params? (ormap vec-type? param-types))
+    (when has-vec-params?
+      (define wrapper-name (string-append (symbol->string (func-name f)) "__wrapper"))
+      ;; Wrapper params: ptr for vec-type params, scalar for others
+      (define wrapper-param-types
+        (for/list ([pt (in-list param-types)])
+          (if (vec-type? pt)
+              (LLVM-Pointer-Type-In-Context ctx 0)
+              (type->llvm pt ctx))))
+      (define wrapper-ret-type (type->llvm ret-type ctx))
+      (define wrapper-ft (LLVM-Function-Type wrapper-ret-type wrapper-param-types
+                                             (length wrapper-param-types) 0))
+      (define wrapper-fn (LLVM-Add-Function llvm-mod wrapper-name wrapper-ft))
+      ;; Build wrapper body
+      (define wb (LLVM-Create-Builder-In-Context ctx))
+      (define wentry (LLVM-Append-Basic-Block-In-Context ctx wrapper-fn "entry"))
+      (LLVM-Position-Builder-At-End wb wentry)
+      ;; Load vector params from pointers element-by-element (avoids alignment issues).
+      ;; Scalar params pass through unchanged.
+      (define i32-type (LLVM-Int32-Type-In-Context ctx))
+      (define call-args
+        (for/list ([pt (in-list param-types)] [i (in-naturals)])
+          (define param (LLVM-Get-Param wrapper-fn i))
+          (if (vec-type? pt)
+              ;; Load each element and build vector via insert-element chain
+              (let* ([elem-llvm-t (type->llvm (vec-type-element pt) ctx)]
+                     [vec-llvm-t (type->llvm pt ctx)]
+                     [n (vec-type-count pt)])
+                (for/fold ([vec (LLVM-Get-Undef vec-llvm-t)])
+                          ([j (in-range n)])
+                  (define idx (LLVM-Const-Int i32-type j 0))
+                  (define elem-ptr (LLVM-Build-GEP2 wb elem-llvm-t param
+                                                    (list idx) 1 ""))
+                  (define elem-val (LLVM-Build-Load2 wb elem-llvm-t elem-ptr ""))
+                  (LLVM-Build-Insert-Element wb vec elem-val idx "")))
+              param)))
+      ;; Call the real function
+      (define real-fn (hash-ref llvm-funcs (func-name f)))
+      (define real-ft (hash-ref llvm-func-types (func-name f)))
+      (define result (LLVM-Build-Call2 wb real-ft real-fn call-args (length call-args) ""))
+      ;; Return
+      (if (and (prim-type? ret-type) (eq? (prim-type-tag ret-type) 'void))
+          (LLVM-Build-Ret-Void wb)
+          (LLVM-Build-Ret wb result))))
 
   (LLVM-Verify-Module llvm-mod 'LLVMReturnStatusAction)
 
@@ -226,6 +287,9 @@
        [(f64)  (LLVM-Double-Type-In-Context ctx)]
        [(void) (LLVM-Void-Type-In-Context ctx)]
        [else   (error 'type->llvm "unsupported prim type: ~a" t)])]
+    [(vec-type? t)
+     (LLVM-Vector-Type (type->llvm (vec-type-element t) ctx)
+                       (vec-type-count t))]
     [(type-ref? t)
      ;; Look up in rec or sum types — return pointer to the struct.
      (define name (type-ref-name t))
@@ -282,6 +346,10 @@
     [(match-variant? expr)   (emit-match-variant expr)]
     [(app? expr)             (emit-app expr)]
     [(body? expr)            (emit-body expr)]
+    [(vec-lit? expr)         (emit-vec-lit expr)]
+    [(vec-extract? expr)     (emit-vec-extract expr)]
+    [(vec-insert? expr)      (emit-vec-insert expr)]
+    [(vec-shuffle? expr)     (emit-vec-shuffle expr)]
     [else (error 'compile "unsupported: ~a" expr)]))
 
 ;; ---- Literals --------------------------------------------------------------
@@ -302,7 +370,10 @@
 ;; ---- Operators -------------------------------------------------------------
 
 (define (ir-type-is-float? t)
-  (and t (prim-type? t) (memq (prim-type-tag t) '(f32 f64))))
+  (cond
+    [(and t (prim-type? t)) (memq (prim-type-tag t) '(f32 f64))]
+    [(and t (vec-type? t))  (ir-type-is-float? (vec-type-element t))]
+    [else #f]))
 
 (define (expr-is-float? expr)
   (cond
@@ -331,6 +402,10 @@
           (let ([fields (rec-type-info-fields info)])
             (define f (assq (field-ref-field-name expr) fields))
             (and f (ir-type-is-float? (cdr f)))))]
+    [(vec-lit? expr) (ir-type-is-float? (vec-lit-element-type expr))]
+    [(vec-extract? expr) (expr-is-float? (vec-extract-vec expr))]
+    [(vec-insert? expr) (expr-is-float? (vec-insert-vec expr))]
+    [(vec-shuffle? expr) (expr-is-float? (vec-shuffle-v1 expr))]
     [else #f]))
 
 (define (emit-op expr)
@@ -446,6 +521,38 @@
      (if (pair? exprs)
          (infer-result-llvm-type (last exprs))
          (LLVM-Int32-Type-In-Context c))]
+    [(op-app? expr)
+     (if (and (pair? (op-app-args expr))
+              (expr-is-float? (car (op-app-args expr))))
+         (LLVM-Double-Type-In-Context c)
+         (LLVM-Int32-Type-In-Context c))]
+    ;; Records and unions are returned as pointers
+    [(rec-new? expr) (LLVM-Pointer-Type-In-Context c 0)]
+    [(ctor? expr) (LLVM-Pointer-Type-In-Context c 0)]
+    [(field-ref? expr)
+     (define info (hash-ref (current-rec-types) (field-ref-type-name expr) #f))
+     (if info
+         (let ([fields (rec-type-info-fields info)])
+           (define f (assq (field-ref-field-name expr) fields))
+           (if f (type->llvm (cdr f) c) (LLVM-Int32-Type-In-Context c)))
+         (LLVM-Int32-Type-In-Context c))]
+    [(if-form? expr) (infer-result-llvm-type (if-form-then expr))]
+    [(named-bindings? expr)
+     (define exprs (body-exprs (named-bindings-body expr)))
+     (if (pair? exprs)
+         (infer-result-llvm-type (last exprs))
+         (LLVM-Int32-Type-In-Context c))]
+    [(app? expr)
+     (define callee (app-callee expr))
+     (if (ref? callee)
+         (let ([entry (assq (ref-name callee) (current-func-env))])
+           (if (and entry (cadr (cdr entry)))
+               (type->llvm (cadr (cdr entry)) c)
+               (LLVM-Int32-Type-In-Context c)))
+         (LLVM-Int32-Type-In-Context c))]
+    [(vec-lit? expr)
+     (LLVM-Vector-Type (type->llvm (vec-lit-element-type expr) c)
+                       (length (vec-lit-values expr)))]
     [else (LLVM-Int32-Type-In-Context c)]))
 
 ;; ---- Named bindings (loop) -------------------------------------------------
@@ -527,6 +634,42 @@
      (define args (for/list ([a (in-list (app-args expr))]) (emit-expr a)))
      (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")]))
 
+;; ---- Vector operations -----------------------------------------------------
+
+(define (emit-vec-lit expr)
+  (define elem-type (vec-lit-element-type expr))
+  (define vals (vec-lit-values expr))
+  (define n (length vals))
+  (define compiled-vals (map emit-expr vals))
+  ;; Build via insert-element chain from undef
+  (define llvm-elem-t (type->llvm elem-type (ctx)))
+  (define llvm-vec-t (LLVM-Vector-Type llvm-elem-t n))
+  (define i32-t (LLVM-Int32-Type-In-Context (ctx)))
+  (for/fold ([vec (LLVM-Get-Undef llvm-vec-t)])
+            ([val (in-list compiled-vals)] [i (in-naturals)])
+    (LLVM-Build-Insert-Element (bld) vec val
+                               (LLVM-Const-Int i32-t i 0) "")))
+
+(define (emit-vec-extract expr)
+  (define vec-val (emit-expr (vec-extract-vec expr)))
+  (define idx-val (emit-expr (vec-extract-index expr)))
+  (LLVM-Build-Extract-Element (bld) vec-val idx-val ""))
+
+(define (emit-vec-insert expr)
+  (define vec-val (emit-expr (vec-insert-vec expr)))
+  (define idx-val (emit-expr (vec-insert-index expr)))
+  (define val (emit-expr (vec-insert-val expr)))
+  (LLVM-Build-Insert-Element (bld) vec-val val idx-val ""))
+
+(define (emit-vec-shuffle expr)
+  (define v1 (emit-expr (vec-shuffle-v1 expr)))
+  (define v2 (emit-expr (vec-shuffle-v2 expr)))
+  (define mask-ints (vec-shuffle-mask expr))
+  (define i32-t (LLVM-Int32-Type-In-Context (ctx)))
+  (define mask-vals (map (lambda (i) (LLVM-Const-Int i32-t i 0)) mask-ints))
+  (define mask-vec (LLVM-Const-Vector mask-vals (length mask-vals)))
+  (LLVM-Build-Shuffle-Vector (bld) v1 v2 mask-vec ""))
+
 ;; ---- Record construction and field access ----------------------------------
 
 (define (emit-rec-new expr)
@@ -536,8 +679,18 @@
                          (lambda () (error 'compile "unknown record type: ~a" type-name))))
   (define llvm-struct-type (rec-type-info-llvm-type info))
 
-  ;; Alloca the struct on the stack
-  (define ptr (LLVM-Build-Alloca b llvm-struct-type ""))
+  ;; Heap-allocate the struct via malloc so the pointer survives function return.
+  (define i64-type (LLVM-Int64-Type-In-Context c))
+  (define struct-size (LLVM-Const-Int i64-type
+                        (length (rec-type-info-fields info))
+                        0))
+  ;; Use a generous size estimate: 8 bytes per field (aligned to i64)
+  (define alloc-size (LLVM-Const-Int i64-type
+                       (* 8 (length (rec-type-info-fields info)))
+                       0))
+  (define malloc-pair (current-malloc))
+  (define raw-ptr (LLVM-Build-Call2 b (cdr malloc-pair) (car malloc-pair)
+                                    (list alloc-size) 1 ""))
 
   ;; Store each field value via GEP
   (define field-vals (map emit-expr (rec-new-args expr)))
@@ -546,11 +699,11 @@
         [i (in-naturals)])
     (define idx (LLVM-Const-Int i32-type i 0))
     (define zero (LLVM-Const-Int i32-type 0 0))
-    (define field-ptr (LLVM-Build-GEP2 b llvm-struct-type ptr (list zero idx) 2 ""))
+    (define field-ptr (LLVM-Build-GEP2 b llvm-struct-type raw-ptr (list zero idx) 2 ""))
     (LLVM-Build-Store b val field-ptr))
 
-  ;; Return the pointer to the struct
-  ptr)
+  ;; Return the pointer to the heap-allocated struct
+  raw-ptr)
 
 (define (emit-field-ref expr)
   (define b (bld)) (define c (ctx))
@@ -597,8 +750,12 @@
 
   (define i32-type (LLVM-Int32-Type-In-Context c))
 
-  ;; Alloca the union struct
-  (define ptr (LLVM-Build-Alloca b union-type ""))
+  ;; Heap-allocate the union struct via malloc
+  (define i64-type (LLVM-Int64-Type-In-Context c))
+  (define alloc-size (LLVM-Const-Int i64-type 40 0)) ; 4 tag + 32 payload + padding
+  (define malloc-pair (current-malloc))
+  (define ptr (LLVM-Build-Call2 b (cdr malloc-pair) (car malloc-pair)
+                                (list alloc-size) 1 ""))
 
   ;; Store tag (field 0)
   (define zero (LLVM-Const-Int i32-type 0 0))
@@ -658,10 +815,18 @@
                     (and (eq? (variant-info-name vi) vname) vi)))
     (LLVM-Add-Case sw (LLVM-Const-Int i32-type (variant-info-tag vinfo) 0) bb))
 
-  ;; Compile each case
+  ;; Compile each case (with scoped env to prevent variable leaking between cases)
+  (define saved-env (hash-copy (current-env)))
+  (define saved-type-env (hash-copy (current-type-env)))
   (define case-results
     (for/list ([cs (in-list cases)]
                [bb (in-list case-bbs)])
+      ;; Restore env to pre-match state for each case
+      (hash-clear! (current-env))
+      (for ([(k v) (in-hash saved-env)]) (hash-set! (current-env) k v))
+      (hash-clear! (current-type-env))
+      (for ([(k v) (in-hash saved-type-env)]) (hash-set! (current-type-env) k v))
+
       (LLVM-Position-Builder-At-End b bb)
       (define pat (match-case-pattern cs))
       (define vname (ctor-pat-variant-name pat))

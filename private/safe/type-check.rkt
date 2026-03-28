@@ -28,7 +28,9 @@
        (memq (prim-type-tag t) '(f32 f64))))
 
 (define (numeric-type? t)
-  (or (integer-type? t) (float-type? t)))
+  (or (integer-type? t)
+      (float-type? t)
+      (and (vec-type? t) (numeric-type? (vec-type-element t)))))
 
 ;; ---- Operator registry -----------------------------------------------------
 
@@ -263,6 +265,27 @@
             (error 'type-check "unknown function: ~a" name))]
        [else
         (error 'type-check "callee must be a ref, got ~a" callee)])]
+
+    [(vec-lit? expr)
+     (vec-type (vec-lit-element-type expr) (length (vec-lit-values expr)))]
+
+    [(vec-extract? expr)
+     (define vt (infer-type (vec-extract-vec expr) env func-env))
+     (unless (vec-type? vt)
+       (error 'type-check "vec-extract requires a vector, got ~a" vt))
+     (vec-type-element vt)]
+
+    [(vec-insert? expr)
+     (define vt (infer-type (vec-insert-vec expr) env func-env))
+     (unless (vec-type? vt)
+       (error 'type-check "vec-insert requires a vector, got ~a" vt))
+     vt]
+
+    [(vec-shuffle? expr)
+     (define vt (infer-type (vec-shuffle-v1 expr) env func-env))
+     (unless (vec-type? vt)
+       (error 'type-check "vec-shuffle requires vectors, got ~a" vt))
+     (vec-type (vec-type-element vt) (length (vec-shuffle-mask expr)))]
 
     [else
      (error 'type-check "unknown expression form: ~a" expr)]))

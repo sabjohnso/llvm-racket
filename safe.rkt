@@ -37,6 +37,7 @@
  ir-type?
  ptr-type ptr-type?
  type-ref type-ref?
+ vec-type vec-type? vec-type-element vec-type-count
 
  ;; IR representation: record and union declarations
  rec rec?
@@ -54,6 +55,7 @@
  ctor
  rec-new field-ref
  void-expr
+ vec-lit vec-extract vec-insert vec-shuffle
 
  ;; IR representation: functions and bindings
  func formals variable

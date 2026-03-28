@@ -15,6 +15,7 @@
          LLVM-Const-Array
          LLVM-Const-Struct
          LLVM-Const-Named-Struct
+         LLVM-Const-Vector
          ;; Constant expressions
          LLVM-Const-GEP2
          LLVM-Const-Bit-Cast
@@ -61,6 +62,11 @@
 
 (define-llvm LLVM-Const-Named-Struct
   (_fun _LLVM-Type-Ref (_list i _LLVM-Value-Ref) _uint -> _LLVM-Value-Ref)
+  #:wrap (prevent-gc-wrap 0))
+
+;; Anchor to the first element value — transitively keeps context alive.
+(define-llvm LLVM-Const-Vector
+  (_fun (_list i _LLVM-Value-Ref) _uint -> _LLVM-Value-Ref)
   #:wrap (prevent-gc-wrap 0))
 
 ;; ---- Constant Expressions --------------------------------------------------

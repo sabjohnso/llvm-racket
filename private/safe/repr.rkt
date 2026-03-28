@@ -45,7 +45,13 @@
          ;; Intrinsic function declarations
          intrinsic-func intrinsic-func?
          intrinsic-func-name intrinsic-func-llvm-name
-         intrinsic-func-param-types intrinsic-func-ret-type)
+         intrinsic-func-param-types intrinsic-func-ret-type
+         ;; Vector types and expressions
+         vec-type vec-type? vec-type-element vec-type-count
+         vec-lit vec-lit? vec-lit-element-type vec-lit-values
+         vec-extract vec-extract? vec-extract-vec vec-extract-index
+         vec-insert vec-insert? vec-insert-vec vec-insert-index vec-insert-val
+         vec-shuffle vec-shuffle? vec-shuffle-v1 vec-shuffle-v2 vec-shuffle-mask)
 
 ;; ---- Type representations --------------------------------------------------
 
@@ -198,3 +204,20 @@
 ;; param-types: list of ir-type
 ;; ret-type:    ir-type
 (struct intrinsic-func (name llvm-name param-types ret-type) #:transparent)
+
+;; ---- Vector types and expressions -------------------------------------------
+
+;; Fixed-width SIMD vector type: <count x element-type>
+(struct vec-type (element count) #:transparent)
+
+;; Construct a vector from a list of element expressions.
+(struct vec-lit (element-type values) #:transparent)
+
+;; Extract a scalar element at a given index from a vector.
+(struct vec-extract (vec index) #:transparent)
+
+;; Insert a scalar value at a given index into a vector.
+(struct vec-insert (vec index val) #:transparent)
+
+;; Shuffle elements from two source vectors using an integer mask.
+(struct vec-shuffle (v1 v2 mask) #:transparent)
