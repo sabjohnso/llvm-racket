@@ -19,6 +19,7 @@
  make-llvm-module
  call
  call-fn
+ disassemble
  safe-module?
  safe-module-ir
 

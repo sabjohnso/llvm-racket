@@ -36,6 +36,8 @@
 (define current-sum-types  (make-parameter #f))  ; hash: symbol → sum-info
 (define current-variant->sum (make-parameter #f)) ; hash: variant-name → sum-name
 (define current-malloc     (make-parameter #f))  ; (cons malloc-fn malloc-ft)
+(define current-overloaded (make-parameter #f))  ; hash: name → overloaded-intrinsic
+(define current-llvm-mod   (make-parameter #f))  ; LLVM module ref (for declaring intrinsics)
 
 (struct loop-info (header-bb phi-nodes bind-vars) #:transparent)
 (struct rec-type-info (llvm-type fields) #:transparent)
@@ -59,6 +61,7 @@
   (define recs       (filter rec? decls))
   (define sums       (filter sum? decls))
   (define intrinsics (filter intrinsic-func? decls))
+  (define overloaded (filter overloaded-intrinsic? decls))
 
   ;; Compile record type declarations
   (define rec-types (make-hash))
@@ -131,10 +134,16 @@
             (list (intrinsic-func-param-types i)
                   (intrinsic-func-ret-type i)))))
 
+  ;; Add overloaded intrinsics to the env with 'overloaded marker.
+  ;; The type checker uses first-arg type as the return type.
+  (define overloaded-env
+    (for/list ([o (in-list overloaded)])
+      (cons (overloaded-intrinsic-name o) (list 'overloaded (overloaded-intrinsic-arity o)))))
+
   ;; Build func-env incrementally: validate each function, accumulating
   ;; the env with known return types so later functions can call earlier ones.
   (define func-env
-    (let loop ([remaining funcs] [env intrinsic-env])
+    (let loop ([remaining funcs] [env (append overloaded-env intrinsic-env)])
       (if (null? remaining)
           env
           (let* ([f (car remaining)]
@@ -201,7 +210,11 @@
                    [current-rec-types rec-types]
                    [current-sum-types sum-types]
                    [current-variant->sum variant->sum]
-                   [current-malloc (cons malloc-fn malloc-ft)])
+                   [current-malloc (cons malloc-fn malloc-ft)]
+                   [current-overloaded
+                    (for/hash ([o (in-list overloaded)])
+                      (values (overloaded-intrinsic-name o) o))]
+                   [current-llvm-mod llvm-mod])
       (define result (emit-body (func-body f)))
       ;; Emit ret or ret void depending on return type
       (define entry (assq (func-name f) func-env))
@@ -211,23 +224,30 @@
           (LLVM-Build-Ret-Void bld)
           (LLVM-Build-Ret bld result))))
 
-  ;; Generate FFI wrapper functions for functions with vec-type params.
+  ;; Generate FFI wrapper functions for functions with vec-type params or return.
   ;; The wrapper takes ptr params (for vectors), loads them as LLVM vectors,
-  ;; calls the real function, and returns the scalar result.
+  ;; calls the real function, and stores vec results to an out-param pointer.
   (for ([f (in-list funcs)])
     (define entry (assq (func-name f) func-env))
     (define param-types (car (cdr entry)))
     (define ret-type (cadr (cdr entry)))
     (define has-vec-params? (ormap vec-type? param-types))
-    (when has-vec-params?
+    (define has-vec-return? (vec-type? ret-type))
+    (when (or has-vec-params? has-vec-return?)
       (define wrapper-name (string-append (symbol->string (func-name f)) "__wrapper"))
-      ;; Wrapper params: ptr for vec-type params, scalar for others
+      (define ptr-t (LLVM-Pointer-Type-In-Context ctx 0))
+      ;; Wrapper params: ptr for vec-type params, scalar for others.
+      ;; If return is vec-type, add an extra ptr out-param at the end.
       (define wrapper-param-types
-        (for/list ([pt (in-list param-types)])
-          (if (vec-type? pt)
-              (LLVM-Pointer-Type-In-Context ctx 0)
-              (type->llvm pt ctx))))
-      (define wrapper-ret-type (type->llvm ret-type ctx))
+        (append
+         (for/list ([pt (in-list param-types)])
+           (if (vec-type? pt) ptr-t (type->llvm pt ctx)))
+         (if has-vec-return? (list ptr-t) '())))
+      ;; Wrapper always returns void when result is vec (stored via out-param)
+      (define wrapper-ret-type
+        (if has-vec-return?
+            (LLVM-Void-Type-In-Context ctx)
+            (type->llvm ret-type ctx)))
       (define wrapper-ft (LLVM-Function-Type wrapper-ret-type wrapper-param-types
                                              (length wrapper-param-types) 0))
       (define wrapper-fn (LLVM-Add-Function llvm-mod wrapper-name wrapper-ft))
@@ -258,10 +278,24 @@
       (define real-fn (hash-ref llvm-funcs (func-name f)))
       (define real-ft (hash-ref llvm-func-types (func-name f)))
       (define result (LLVM-Build-Call2 wb real-ft real-fn call-args (length call-args) ""))
-      ;; Return
-      (if (and (prim-type? ret-type) (eq? (prim-type-tag ret-type) 'void))
-          (LLVM-Build-Ret-Void wb)
-          (LLVM-Build-Ret wb result))))
+      ;; Return: store vec result to out-param, or return scalar directly
+      (cond
+        [has-vec-return?
+         ;; Store result vector element-by-element to the out-param pointer
+         (define out-param (LLVM-Get-Param wrapper-fn (length param-types)))
+         (define elem-llvm-t (type->llvm (vec-type-element ret-type) ctx))
+         (define n (vec-type-count ret-type))
+         (for ([j (in-range n)])
+           (define idx (LLVM-Const-Int i32-type j 0))
+           (define elem-val (LLVM-Build-Extract-Element wb result idx ""))
+           (define elem-ptr (LLVM-Build-GEP2 wb elem-llvm-t out-param
+                                             (list idx) 1 ""))
+           (LLVM-Build-Store wb elem-val elem-ptr))
+         (LLVM-Build-Ret-Void wb)]
+        [(and (prim-type? ret-type) (eq? (prim-type-tag ret-type) 'void))
+         (LLVM-Build-Ret-Void wb)]
+        [else
+         (LLVM-Build-Ret wb result)])))
 
   (LLVM-Verify-Module llvm-mod 'LLVMReturnStatusAction)
 
@@ -367,6 +401,21 @@
      (define uv (if (< v 0) (+ (expt 2 bits) v) v))
      (LLVM-Const-Int (type->llvm t (ctx)) uv 0)]))
 
+;; ---- LLVM type name mangling -----------------------------------------------
+
+;; Convert an IR type to the LLVM intrinsic name suffix.
+;; e.g., f64 → "f64", (vec-type f64 4) → "v4f64", i32 → "i32"
+(define (ir-type->llvm-suffix t)
+  (cond
+    [(prim-type? t)
+     (case (prim-type-tag t)
+       [(f64) "f64"] [(f32) "f32"]
+       [(i1) "i1"] [(i8) "i8"] [(i16) "i16"] [(i32) "i32"] [(i64) "i64"]
+       [else (error 'ir-type->llvm-suffix "unsupported: ~a" t)])]
+    [(vec-type? t)
+     (format "v~a~a" (vec-type-count t) (ir-type->llvm-suffix (vec-type-element t)))]
+    [else (error 'ir-type->llvm-suffix "unsupported: ~a" t)]))
+
 ;; ---- Operators -------------------------------------------------------------
 
 (define (ir-type-is-float? t)
@@ -395,7 +444,12 @@
      (define callee (app-callee expr))
      (and (ref? callee)
           (let ([entry (assq (ref-name callee) (current-func-env))])
-            (and entry (ir-type-is-float? (cadr (cdr entry))))))]
+            (and entry
+                 (if (eq? (car (cdr entry)) 'overloaded)
+                     ;; Overloaded intrinsic: return type matches first arg type
+                     (and (pair? (app-args expr))
+                          (expr-is-float? (car (app-args expr))))
+                     (ir-type-is-float? (cadr (cdr entry)))))))]
     [(field-ref? expr)
      (define info (hash-ref (current-rec-types) (field-ref-type-name expr) #f))
      (and info
@@ -627,12 +681,60 @@
      (car (loop-info-phi-nodes loop))]
 
     [else
-     ;; Function call
-     (define llvm-fn (hash-ref (current-funcs) name
-                               (lambda () (error 'compile "unknown function: ~a" name))))
-     (define ft (hash-ref (current-func-types) name))
-     (define args (for/list ([a (in-list (app-args expr))]) (emit-expr a)))
-     (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")]))
+     ;; Check for overloaded intrinsic
+     (define oi (hash-ref (current-overloaded) name #f))
+     (cond
+       [oi
+        ;; Resolve the overloaded intrinsic based on argument types.
+        ;; Compile args first to determine their LLVM types.
+        (define args (for/list ([a (in-list (app-args expr))]) (emit-expr a)))
+        ;; Determine the operand IR type from the compile-time type env.
+        ;; Walk the expression to find its type — handles ref, lit, op-app,
+        ;; vec-lit, app, and other forms.
+        (define first-arg-expr (car (app-args expr)))
+        (define (infer-ir-type e)
+          (cond
+            [(ref? e) (or (lookup-type (ref-name e)) f64)]
+            [(lit? e) (lit-type e)]
+            [(op-app? e)
+             (and (pair? (op-app-args e)) (infer-ir-type (car (op-app-args e))))]
+            [(vec-lit? e) (vec-type (vec-lit-element-type e) (length (vec-lit-values e)))]
+            [(vec-extract? e) (let ([vt (infer-ir-type (vec-extract-vec e))])
+                                (and (vec-type? vt) (vec-type-element vt)))]
+            [(vec-insert? e) (infer-ir-type (vec-insert-vec e))]
+            [(app? e)
+             (and (ref? (app-callee e))
+                  (let ([entry (assq (ref-name (app-callee e)) (current-func-env))])
+                    (and entry (not (eq? (car (cdr entry)) 'overloaded))
+                         (cadr (cdr entry)))))]
+            [else f64]))
+        (define arg-ir-type (infer-ir-type first-arg-expr))
+        ;; Mangle the LLVM name: prefix.type-suffix
+        (define type-suffix (ir-type->llvm-suffix arg-ir-type))
+        (define mangled-name
+          (string-append (overloaded-intrinsic-llvm-prefix oi) "." type-suffix))
+        ;; Declare the specific variant if not already in llvm-funcs
+        (define existing (hash-ref (current-funcs) (string->symbol mangled-name) #f))
+        (define-values (llvm-fn ft)
+          (if existing
+              (values existing (hash-ref (current-func-types) (string->symbol mangled-name)))
+              (let* ([c (ctx)]
+                     [llvm-t (type->llvm arg-ir-type c)]
+                     [param-ts (make-list (overloaded-intrinsic-arity oi) llvm-t)]
+                     [new-ft (LLVM-Function-Type llvm-t param-ts
+                                                 (overloaded-intrinsic-arity oi) 0)]
+                     [new-fn (LLVM-Add-Function (current-llvm-mod) mangled-name new-ft)])
+                (hash-set! (current-funcs) (string->symbol mangled-name) new-fn)
+                (hash-set! (current-func-types) (string->symbol mangled-name) new-ft)
+                (values new-fn new-ft))))
+        (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")]
+       [else
+        ;; Normal function call
+        (define llvm-fn (hash-ref (current-funcs) name
+                                  (lambda () (error 'compile "unknown function: ~a" name))))
+        (define ft (hash-ref (current-func-types) name))
+        (define args (for/list ([a (in-list (app-args expr))]) (emit-expr a)))
+        (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")])]))
 
 ;; ---- Vector operations -----------------------------------------------------
 

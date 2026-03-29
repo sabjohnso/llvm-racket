@@ -448,10 +448,35 @@
                     (syntax->list #'(clause ...)))])
          #`(match-variant #,scrut #,@cases))]
 
-      ;; Arithmetic operators
+      ;; Arithmetic operators — variadic, desugared to binary left-fold
       [(op-id args ...)
        (and (identifier? #'op-id) (op-sym? (syntax-e #'op-id)))
-       #`((op '#,(syntax-e #'op-id)) #,@(tx1* (syntax->list #'(args ...))))]
+       (let* ([sym (syntax-e #'op-id)]
+              [arg-stxs (syntax->list #'(args ...))]
+              [n (length arg-stxs)])
+         (cond
+           ;; Unary: (+ x) → identity, (- x) → negation, (* x) → identity
+           [(= n 1)
+            (define tx-arg (tx1 (car arg-stxs)))
+            (if (eq? sym '-)
+                #`((op 'neg) #,tx-arg)
+                tx-arg)]
+           ;; Binary: pass through
+           [(= n 2)
+            #`((op '#,sym) #,@(tx1* arg-stxs))]
+           ;; Variadic (3+): left-fold into nested binary ops
+           [(> n 2)
+            (let loop ([rest (cddr arg-stxs)]
+                       [acc #`((op '#,sym) #,(tx1 (car arg-stxs))
+                                           #,(tx1 (cadr arg-stxs)))])
+              (if (null? rest)
+                  acc
+                  (loop (cdr rest)
+                        #`((op '#,sym) #,acc #,(tx1 (car rest))))))]
+           [else
+            (raise-syntax-error 'define-llvm-module
+                                (format "~a requires at least 1 argument" sym)
+                                #'op-id)]))]
 
       ;; Comparison operators
       [(cmp-id args ...)

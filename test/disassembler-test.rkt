@@ -50,7 +50,8 @@
     ;; Disassemble first few instructions from the raw object buffer
     ;; (the buffer contains the full object file, not just code,
     ;; but the first bytes may decode to something)
-    (define result (LLVM-Disasm-Instruction dc code-ptr (min code-size 64) 0))
+    (define-values (result consumed)
+      (LLVM-Disasm-Instruction dc code-ptr (min code-size 64) 0))
     ;; Result is either a string (decoded instruction) or #f (couldn't decode)
     ;; Either outcome is valid — object header bytes may not decode.
     ;; The key is that the disassembler didn't crash.
@@ -68,8 +69,10 @@
 
     ;; x86-64: ret = 0xc3
     (define ret-bytes (bytes #xc3))
-    (define result (LLVM-Disasm-Instruction dc ret-bytes 1 0))
+    (define-values (result consumed)
+      (LLVM-Disasm-Instruction dc ret-bytes 1 0))
     (check-true (string? result) "should decode ret instruction")
+    (check-equal? consumed 1)
     (check-true (string-contains? result "ret")
                 (format "expected 'ret' in ~s" result)))
 

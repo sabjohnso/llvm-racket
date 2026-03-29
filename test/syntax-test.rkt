@@ -172,6 +172,43 @@
           (+ x y))))
     (check-equal? (call m inc 9) 10))
 
+  ;; ---- Variadic operators -------------------------------------------------------
+
+  (test-case "variadic: (+ a b c d) left-folds"
+    (define-llvm-module m
+      (define (sum4 [a : Int32] [b : Int32] [c : Int32] [d : Int32])
+        (+ a b c d)))
+    (check-equal? (call m sum4 1 2 3 4) 10))
+
+  (test-case "variadic: (* a b c) left-folds"
+    (define-llvm-module m
+      (define (prod3 [a : Int32] [b : Int32] [c : Int32])
+        (* a b c)))
+    (check-equal? (call m prod3 2 3 4) 24))
+
+  (test-case "variadic: (- a b c) = (- (- a b) c)"
+    (define-llvm-module m
+      (define (sub3 [a : Int32] [b : Int32] [c : Int32])
+        (- a b c)))
+    ;; 10 - 3 - 2 = 5
+    (check-equal? (call m sub3 10 3 2) 5))
+
+  (test-case "variadic: (+ x) is identity"
+    (define-llvm-module m
+      (define (id [x : Int32]) (+ x)))
+    (check-equal? (call m id 42) 42))
+
+  (test-case "variadic: (- x) is negation"
+    (define-llvm-module m
+      (define (neg-fn [x : Int32]) (- x)))
+    (check-equal? (call m neg-fn 7) -7))
+
+  (test-case "variadic: float (+ a b c)"
+    (define-llvm-module m
+      (define (fsum3 [a : Float64] [b : Float64] [c : Float64])
+        (+ a b c)))
+    (check-= (call m fsum3 1.0 2.0 3.0) 6.0 0.001))
+
   ;; ---- Float cross-function call ------------------------------------------------
 
   (test-case "standalone : raises helpful error"

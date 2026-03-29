@@ -3,6 +3,7 @@
 (require ffi/unsafe
          ffi/vector
          racket/list
+         racket/string
          "repr.rkt"
          "library.rkt"
          "type-check.rkt"
@@ -13,11 +14,13 @@
          "../ffi/target.rkt"
          "../ffi/target-machine.rkt"
          "../ffi/passes.rkt"
-         "../ffi/orc.rkt")
+         "../ffi/orc.rkt"
+         "../ffi/disassembler.rkt")
 
 (provide make-llvm-module
          call
          call-fn
+         disassemble
          safe-module?
          safe-module-ir)
 
@@ -88,8 +91,13 @@
       (cons (intrinsic-func-name i)
             (list (intrinsic-func-param-types i)
                   (intrinsic-func-ret-type i)))))
+  (define overloaded-env
+    (for/list ([o (in-list (filter overloaded-intrinsic? all-decls))])
+      (cons (overloaded-intrinsic-name o)
+            (list 'overloaded (overloaded-intrinsic-arity o)))))
   (define func-env
-    (let loop ([remaining (filter func? all-decls)] [env intrinsic-env])
+    (let loop ([remaining (filter func? all-decls)]
+               [env (append overloaded-env intrinsic-env)])
       (if (null? remaining)
           env
           (let* ([f (car remaining)]
@@ -119,13 +127,12 @@
   (define decls (safe-module-decls m))
   (define registry (safe-module-type-registry m))
 
-  ;; Use wrapper function if any params are vec-type
+  ;; Use wrapper function if any params or return are vec-type
   (define has-vec-params? (ormap vec-type? param-types))
   (define has-vec-return? (vec-type? ret-type))
-  (when has-vec-return?
-    (error 'call-fn "vector return types not yet supported at FFI boundary"))
+  (define needs-wrapper? (or has-vec-params? has-vec-return?))
   (define lookup-name
-    (if has-vec-params?
+    (if needs-wrapper?
         (string-append (symbol->string fn-name) "__wrapper")
         (symbol->string fn-name)))
   (define addr (LLVM-Orc-LLJIT-Lookup jit lookup-name))
@@ -133,13 +140,40 @@
   ;; Marshal arguments: convert Racket values to C values.
   ;; type-ref args get marshalled to heap-allocated struct pointers.
   (define c-params (map (lambda (t) (ir-type->ctype t decls)) param-types))
-  (define c-ret (ir-type->ctype ret-type decls))
   (define marshalled-args
     (map (lambda (arg t) (marshal-arg arg t decls registry)) args param-types))
+
+  ;; For vec return via wrapper: allocate output ffi/vector, append its pointer as extra arg
+  (define-values (all-c-params all-marshalled-args result-vec)
+    (if has-vec-return?
+        (let* ([n (vec-type-count ret-type)]
+               [tag (prim-type-tag (vec-type-element ret-type))]
+               [out-vec (case tag
+                          [(f64) (make-f64vector n)]
+                          [(f32) (make-f32vector n)]
+                          [(i32) (make-s32vector n)]
+                          [(i64) (make-s64vector n)]
+                          [else (error 'call-fn "unsupported vec element: ~a" tag)])]
+               [out-ptr (case tag
+                          [(f64) (f64vector->cpointer out-vec)]
+                          [(f32) (f32vector->cpointer out-vec)]
+                          [(i32) (s32vector->cpointer out-vec)]
+                          [(i64) (s64vector->cpointer out-vec)])])
+          (values (append c-params (list _pointer))
+                  (append marshalled-args (list out-ptr))
+                  out-vec))
+        (values c-params marshalled-args #f)))
+
+  (define c-ret (if has-vec-return? _void (ir-type->ctype ret-type decls)))
 
   ;; Cast address to callable function pointer and invoke
   (define fn-ptr (cast addr _uint64 _pointer))
   (cond
+    [has-vec-return?
+     ;; Wrapper is void-returning; result is in result-vec
+     (define callable (cast fn-ptr _pointer (_cprocedure all-c-params _void)))
+     (apply callable all-marshalled-args)
+     result-vec]
     [(and (prim-type? ret-type) (eq? (prim-type-tag ret-type) 'void))
      ;; Void return — call for side effect, return Racket (void)
      (define callable (cast fn-ptr _pointer (_cprocedure c-params _void)))
@@ -149,6 +183,55 @@
      (define callable (cast fn-ptr _pointer (_cprocedure c-params c-ret)))
      (define raw-result (apply callable marshalled-args))
      (unmarshal-result raw-result ret-type decls registry)]))
+
+;; ---- Disassembly -----------------------------------------------------------
+
+;; Disassemble a JIT'd function and return a string of assembly instructions.
+;; Walks the machine code starting at the function's address, decoding
+;; instructions until a ret is found or max-bytes is reached.
+(define (disassemble m fn-name [max-bytes 4096])
+  (define jit (safe-module-jit m))
+  ;; Look up the function — use the wrapper if one exists
+  (define entry (assq fn-name (safe-module-func-env m)))
+  (unless entry
+    (error 'disassemble "unknown function: ~a" fn-name))
+  (define param-types (car (cdr entry)))
+  (define ret-type (cadr (cdr entry)))
+  (define needs-wrapper? (or (ormap vec-type? param-types) (vec-type? ret-type)))
+  (define lookup-name
+    (if needs-wrapper?
+        (string-append (symbol->string fn-name) "__wrapper")
+        (symbol->string fn-name)))
+  (define addr (LLVM-Orc-LLJIT-Lookup jit lookup-name))
+  (define base-ptr (cast addr _uint64 _pointer))
+
+  ;; Create disassembler for the host triple
+  (define triple-ptr (LLVM-Get-Default-Target-Triple))
+  (define triple (cast triple-ptr _pointer _string))
+  (LLVM-Dispose-Message triple-ptr)
+  (define dc (LLVM-Create-Disasm triple))
+  (LLVM-Set-Disasm-Options dc 2)  ; PrintImmHex
+
+  ;; Walk instructions
+  (define lines
+    (let loop ([offset 0] [acc '()])
+      (cond
+        [(>= offset max-bytes) (reverse acc)]
+        [else
+         (define remaining (- max-bytes offset))
+         (define pc (+ addr offset))
+         (define ptr (ptr-add base-ptr offset))
+         (define-values (instr consumed)
+           (LLVM-Disasm-Instruction dc ptr remaining pc))
+         (cond
+           [(not instr) (reverse acc)]
+           [else
+            (define line (format "  0x~x:\t~a" pc (string-trim instr)))
+            (if (regexp-match? #rx"ret" instr)
+                (reverse (cons line acc))
+                (loop (+ offset consumed) (cons line acc)))])])))
+
+  (string-join lines "\n"))
 
 ;; ---- Type marshalling ------------------------------------------------------
 

@@ -238,28 +238,35 @@
         (define name (ref-name callee))
         (define entry (assq name func-env))
         (if entry
-            ;; Loop call — return type is determined by the loop body.
-            ;; For now, we trust it (the body determines the type).
-            ;; A proper implementation would unify, but for validation
-            ;; we check arg count and types.
             (let* ([info (cdr entry)]
-                   [param-types (car info)]
                    [arg-types (for/list ([a (in-list (app-args expr))])
                                 (infer-type a env func-env))])
-              (unless (= (length arg-types) (length param-types))
-                (error 'type-check
-                       "~a expects ~a args, got ~a"
-                       name (length param-types) (length arg-types)))
-              (for ([at (in-list arg-types)]
-                    [pt (in-list param-types)])
-                (unless (equal? at pt)
-                  (error 'type-check
-                         "~a argument type mismatch: expected ~a, got ~a"
-                         name pt at)))
-              ;; For function calls with known return type, use it.
-              ;; For loop calls (ret-type = #f), return loop-recur sentinel.
-              (define ret-type (cadr info))
-              (or ret-type loop-recur))
+              (cond
+                ;; Overloaded intrinsic: all args same type, return type = arg type
+                [(eq? (car info) 'overloaded)
+                 (define arity (cadr info))
+                 (unless (= (length arg-types) arity)
+                   (error 'type-check
+                          "~a expects ~a args, got ~a"
+                          name arity (length arg-types)))
+                 (car arg-types)]
+                ;; Normal function/loop call
+                [else
+                 (define param-types (car info))
+                 (unless (= (length arg-types) (length param-types))
+                   (error 'type-check
+                          "~a expects ~a args, got ~a"
+                          name (length param-types) (length arg-types)))
+                 (for ([at (in-list arg-types)]
+                       [pt (in-list param-types)])
+                   (unless (equal? at pt)
+                     (error 'type-check
+                            "~a argument type mismatch: expected ~a, got ~a"
+                            name pt at)))
+                 ;; For function calls with known return type, use it.
+                 ;; For loop calls (ret-type = #f), return loop-recur sentinel.
+                 (define ret-type (cadr info))
+                 (or ret-type loop-recur)]))
             ;; Not in func-env — could be a module-level function.
             ;; For now, error.
             (error 'type-check "unknown function: ~a" name))]

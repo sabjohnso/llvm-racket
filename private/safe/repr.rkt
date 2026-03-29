@@ -46,6 +46,9 @@
          intrinsic-func intrinsic-func?
          intrinsic-func-name intrinsic-func-llvm-name
          intrinsic-func-param-types intrinsic-func-ret-type
+         overloaded-intrinsic overloaded-intrinsic?
+         overloaded-intrinsic-name overloaded-intrinsic-llvm-prefix
+         overloaded-intrinsic-arity
          ;; Vector types and expressions
          vec-type vec-type? vec-type-element vec-type-count
          vec-lit vec-lit? vec-lit-element-type vec-lit-values
@@ -204,6 +207,12 @@
 ;; param-types: list of ir-type
 ;; ret-type:    ir-type
 (struct intrinsic-func (name llvm-name param-types ret-type) #:transparent)
+
+;; Type-overloaded LLVM intrinsic — the LLVM name is resolved at each call site
+;; based on argument types.  E.g., (overloaded-intrinsic 'fma "llvm.fma" 3)
+;; resolves to "llvm.fma.f64" for scalar or "llvm.fma.v4f64" for <4 x f64>.
+;; All params and return have the same overloaded type.
+(struct overloaded-intrinsic (name llvm-prefix arity) #:transparent)
 
 ;; ---- Vector types and expressions -------------------------------------------
 

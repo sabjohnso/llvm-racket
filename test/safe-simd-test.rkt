@@ -108,6 +108,7 @@
   (require rackunit
            ffi/vector
            llvm/private/safe/repr
+           llvm/private/safe/library
            llvm/private/safe/syntax
            llvm/private/safe/module)
 
@@ -189,10 +190,61 @@
                          (f64vector 5.0 6.0 7.0 8.0))
               70.0 0.001))
 
-  (test-case "vec-type return raises at FFI boundary (no wrapper yet)"
-    (check-exn #rx"vector return.*not yet supported"
-               (lambda ()
-                 (define m (make-llvm-module
-                            (func 'bad (formals (variable 'v (vec-type f64 4)))
-                                  (body (ref 'v)))))
-                 (call m bad 1.0)))))
+  (test-case "call: vec return via f64vector"
+    (define m (make-llvm-module
+               (func 'vscale
+                     (formals (variable 'v (vec-type f64 4))
+                              (variable 'k f64))
+                     (body
+                      ((op '*)
+                       (ref 'v)
+                       (vec-lit f64 (list (ref 'k) (ref 'k)
+                                          (ref 'k) (ref 'k))))))))
+    (define result (call m vscale (f64vector 1.0 2.0 3.0 4.0) 2.0))
+    (check-true (f64vector? result))
+    (check-= (f64vector-ref result 0) 2.0 0.001)
+    (check-= (f64vector-ref result 1) 4.0 0.001)
+    (check-= (f64vector-ref result 2) 6.0 0.001)
+    (check-= (f64vector-ref result 3) 8.0 0.001))
+
+  (test-case "call: fma intrinsic on vectors produces vfmadd"
+    (define m (make-llvm-module
+               #:include (list math-lib)
+               (func 'my-fma
+                     (formals (variable 'a (vec-type f64 4))
+                              (variable 'b (vec-type f64 4))
+                              (variable 'c (vec-type f64 4)))
+                     (body (app (ref 'fma) (ref 'a) (ref 'b) (ref 'c))))))
+    (define result (call m my-fma
+                         (f64vector 1.0 2.0 3.0 4.0)
+                         (f64vector 5.0 6.0 7.0 8.0)
+                         (f64vector 9.0 10.0 11.0 12.0)))
+    ;; fma(a,b,c) = a*b+c: 1*5+9=14, 2*6+10=22, 3*7+11=32, 4*8+12=44
+    (check-true (f64vector? result))
+    (check-= (f64vector-ref result 0) 14.0 0.001)
+    (check-= (f64vector-ref result 1) 22.0 0.001)
+    (check-= (f64vector-ref result 2) 32.0 0.001)
+    (check-= (f64vector-ref result 3) 44.0 0.001)
+    ;; Should use vfmadd instruction, not separate vmulpd+vaddpd
+    (define asm (disassemble m 'my-fma))
+    (check-true (regexp-match? #rx"vfmadd" asm)
+                (format "expected vfmadd in:\n~a" asm)))
+
+  (test-case "call: fma with vec params and vec return"
+    (define m (make-llvm-module
+               (func 'fma
+                     (formals (variable 'a (vec-type f64 4))
+                              (variable 'b (vec-type f64 4))
+                              (variable 'c (vec-type f64 4)))
+                     (body ((op '+) ((op '*) (ref 'a) (ref 'b)) (ref 'c))))))
+    (define result (call m fma
+                         (f64vector 1.0 2.0 3.0 4.0)
+                         (f64vector 5.0 6.0 7.0 8.0)
+                         (f64vector 9.0 10.0 11.0 12.0)))
+    ;; 1*5+9=14, 2*6+10=22, 3*7+11=32, 4*8+12=44
+    (check-true (f64vector? result))
+    (check-= (f64vector-ref result 0) 14.0 0.001)
+    (check-= (f64vector-ref result 1) 22.0 0.001)
+    (check-= (f64vector-ref result 2) 32.0 0.001)
+    (check-= (f64vector-ref result 3) 44.0 0.001)))
+

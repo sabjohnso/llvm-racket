@@ -28,4 +28,7 @@
      (intrinsic-func 'log2  "llvm.log2.f64"    (list f64) f64)
      (intrinsic-func 'log10 "llvm.log10.f64"   (list f64) f64)
      (intrinsic-func 'min   "llvm.minnum.f64"  (list f64 f64) f64)
-     (intrinsic-func 'max   "llvm.maxnum.f64"  (list f64 f64) f64))))
+     (intrinsic-func 'max   "llvm.maxnum.f64"  (list f64 f64) f64)
+     ;; Fused multiply-add: fma(a, b, c) = a*b + c (single rounding).
+     ;; Overloaded — works on both scalar f64 and vector types.
+     (overloaded-intrinsic 'fma "llvm.fma" 3))))

@@ -67,7 +67,8 @@
                      -> _size)))
 
 ;; Disassemble one instruction from a byte string or pointer.
-;; Returns a string on success, #f if the bytes couldn't be decoded.
+;; Returns (values instruction-string bytes-consumed) on success,
+;; or (values #f 0) if the bytes couldn't be decoded.
 ;; bytes-or-ptr: bytes? or cpointer?
 ;; size: number of bytes available
 ;; pc: virtual address for the instruction (used in relative calculations)
@@ -84,5 +85,5 @@
   (define consumed
     (LLVMDisasmInstruction-raw dc input-ptr size pc out-buf out-size))
   (if (zero? consumed)
-      #f
-      (cast out-buf _pointer _string)))
+      (values #f 0)
+      (values (cast out-buf _pointer _string) consumed)))
