@@ -2,7 +2,10 @@
 
 ;; llvm — Safe, high-level LLVM interface for Racket.
 ;;
-;; This module will provide a safe, Racket-idiomatic API over LLVM.
+;; Re-exports the safe API so users can write:
+;;   (require llvm)
 ;; For the thin/unsafe FFI layer, use:
-;;
 ;;   (require llvm/unsafe)
+
+(require "safe.rkt")
+(provide (all-from-out "safe.rkt"))
