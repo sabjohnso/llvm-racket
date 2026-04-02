@@ -95,6 +95,17 @@
     (for/list ([o (in-list (filter overloaded-intrinsic? all-decls))])
       (cons (overloaded-intrinsic-name o)
             (list 'overloaded (overloaded-intrinsic-arity o)))))
+  ;; Build rec-env for field type lookups
+  (define mod-recs (filter rec? all-decls))
+  (define rec-field-env
+    (for*/hash ([r (in-list mod-recs)]
+                [f (in-list (rec-fields r))])
+      (values (cons (rec-name r) (field-name f)) (field-type f))))
+  ;; Build variant→sum mapping for union type inference
+  (define mod-variant->sum
+    (for*/hash ([s (in-list (filter sum? all-decls))]
+                [v (in-list (sum-variants s))])
+      (values (variant-name v) (sum-name s))))
   (define func-env
     (let loop ([remaining (filter func? all-decls)]
                [env (append overloaded-env intrinsic-env)])
@@ -103,7 +114,7 @@
           (let* ([f (car remaining)]
                  [params (formals-vars (func-formals f))]
                  [param-types (map variable-type params)]
-                 [ret-type (validate-func f env)]
+                 [ret-type (validate-func f env rec-field-env mod-variant->sum)]
                  [new-env (cons (cons (func-name f)
                                       (list param-types ret-type))
                                 env)])
@@ -286,7 +297,7 @@
        ;; Struct-based: use registry if arg matches the struct predicate
        [(and rec-decl reg-entry (eq? (car reg-entry) 'record)
              ((caddr reg-entry) arg))
-        (marshal-record-struct arg rec-decl reg-entry)]
+        (marshal-record-struct arg rec-decl reg-entry decls registry)]
        [(and sum-decl reg-entry (eq? (car reg-entry) 'union)
              (for/or ([ve (in-list (cadr reg-entry))])
                ((caddr ve) arg)))
@@ -297,22 +308,23 @@
        [else (error 'marshal "unknown type: ~a" name)])]
     [else arg]))
 
-;; Marshal a Racket list to a C struct pointer.
-;; arg = (list val1 val2 ...) matching field order.
-(define (marshal-record arg rec-decl)
+;; Marshal a Racket list of field values to a C struct pointer.
+;; Values are recursively marshalled (nested records become pointers).
+(define (marshal-record arg rec-decl [decls '()] [registry (hash)])
   (define fields (rec-fields rec-decl))
   (define n (length fields))
   (unless (and (list? arg) (= (length arg) n))
     (error 'marshal "record ~a expects ~a fields, got ~a"
            (rec-name rec-decl) n arg))
-  ;; Compute struct size: sum of field sizes (simplified alignment)
-  ;; Allocate memory and write fields
+  ;; Recursively marshal each field value
   (define field-types (map field-type fields))
-  (define c-types (map (lambda (t) (ir-type->ctype t '())) field-types))
+  (define marshalled-vals
+    (map (lambda (val ft) (marshal-arg val ft decls registry)) arg field-types))
+  (define c-types (map (lambda (t) (ir-type->ctype t decls)) field-types))
   (define offsets (compute-offsets c-types))
   (define total-size (+ (last offsets) (ctype-sizeof (last c-types))))
   (define ptr (malloc total-size 'atomic))
-  (for ([val (in-list arg)]
+  (for ([val (in-list marshalled-vals)]
         [ct (in-list c-types)]
         [off (in-list offsets)])
     (ptr-set! (ptr-add ptr off) ct val))
@@ -445,7 +457,7 @@
 ;; extract field values from struct instances.
 
 ;; Registry entry for record: (list 'record constructor pred? (list accessor ...))
-(define (marshal-record-struct arg rec-decl reg-entry)
+(define (marshal-record-struct arg rec-decl reg-entry decls registry)
   (define pred? (caddr reg-entry))
   (define accessors (cadddr reg-entry))
   (unless (pred? arg)
@@ -453,8 +465,8 @@
            (rec-name rec-decl) arg))
   ;; Extract field values using accessors
   (define vals (map (lambda (acc) (acc arg)) accessors))
-  ;; Delegate to existing record marshalling with the extracted list
-  (marshal-record vals rec-decl))
+  ;; Delegate to record marshalling with recursive field marshalling
+  (marshal-record vals rec-decl decls registry))
 
 ;; Registry entry for union: (list 'union (list (list 'VName ctor pred? (list acc ...)) ...))
 (define (marshal-union-struct arg sum-decl reg-entry)

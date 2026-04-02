@@ -104,6 +104,11 @@
   (define (cmp-sym? sym)
     (memq sym '(= != < <= > >=)))
 
+  ;; Helper: check if an identifier has a given symbolic name,
+  ;; regardless of its binding (works across modules, REPL, etc.)
+  (define (id-name=? stx sym)
+    (and (identifier? stx) (eq? (syntax-e stx) sym)))
+
   ;; Process module body: collect type annotations and definitions.
   ;; Returns four values: (decls, includes, struct-defs, registry-entries).
   (define (process-module-body forms)
@@ -114,6 +119,7 @@
                [struct-defs '()]   ; Racket struct definitions to generate
                [reg-entries '()]   ; type registry entries for marshalling
                [rec-names '()]     ; known record type names
+               [rec-field-names '()] ; ((rec-name field-name ...) ...)
                [variant-names '()] ; known variant constructor names
                [union-names '()])  ; known union type names
       (cond
@@ -129,7 +135,7 @@
            [(include lib-expr)
             (loop (cdr remaining) type-env decls
                   (cons #'lib-expr includes) struct-defs reg-entries
-                  rec-names variant-names union-names)])]
+                  rec-names rec-field-names variant-names union-names)])]
 
         ;; Type annotation: (: name (-> Arg ... Ret))
         [(and (syntax-case (car remaining) (:)
@@ -143,14 +149,14 @@
               (loop (cdr remaining)
                     (cons (list fn-name param-types ret-type) type-env)
                     decls includes struct-defs reg-entries
-                    rec-names variant-names union-names))])]
+                    rec-names rec-field-names variant-names union-names))])]
 
-        ;; Record definition: (define-record Name ([field : Type] ...))
-        [(syntax-case (car remaining) (define-record)
-           [(define-record name (clause ...)) #t]
+        ;; Record definition: (struct Name ([field : Type] ...))
+        [(syntax-case (car remaining) ()
+           [(kid name (clause ...)) (id-name=? #'kid 'struct) #t]
            [_ #f])
-         (syntax-case (car remaining) (define-record :)
-           [(define-record name (clause ...))
+         (syntax-case (car remaining) (:)
+           [(_ name (clause ...))
             (let* ([rname (syntax-e #'name)]
                    [clause-list (syntax->list #'(clause ...))]
                    [field-names (map (lambda (c)
@@ -185,6 +191,7 @@
                     (cons sdef struct-defs)
                     (cons reg reg-entries)
                     (cons rname rec-names)
+                    (cons (cons rname (map syntax-e field-names)) rec-field-names)
                     variant-names union-names))])]
 
         ;; Function definition: (define (name args ...) body ...)
@@ -239,7 +246,7 @@
                                        arg-names param-types))]
                    [body-stx (transform-body
                               (syntax->list #'(body-expr ...))
-                              type-env rec-names variant-names)]
+                              type-env rec-names variant-names rec-field-names)]
                    [decl #`(func '#,fn-name #,formals-stx (body #,@body-stx))])
               ;; When using inline types, add to type-env so later functions
               ;; can reference this one (even without explicit : annotation).
@@ -250,7 +257,7 @@
                     type-env))
               (loop (cdr remaining) new-type-env
                     (cons decl decls) includes struct-defs reg-entries
-                    rec-names variant-names union-names))])]
+                    rec-names rec-field-names variant-names union-names))])]
 
         ;; Union definition: (union Name [Variant ([field : Type] ...)] ...)
         [(syntax-case (car remaining) (union)
@@ -314,7 +321,7 @@
                     (cons decl decls) includes
                     (append variant-sdefs struct-defs)
                     (cons reg reg-entries)
-                    rec-names new-variant-names
+                    rec-names rec-field-names new-variant-names
                     (cons uname union-names)))])]
 
         [else
@@ -322,24 +329,19 @@
                              "unexpected form" (car remaining))])))
 
   ;; Transform a list of body expressions to runtime API calls.
-  (define (transform-body exprs type-env rec-names variant-names)
-    (map (lambda (e) (transform-expr e type-env rec-names variant-names)) exprs))
+  (define (transform-body exprs type-env rec-names variant-names [rfn '()])
+    (map (lambda (e) (transform-expr e type-env rec-names variant-names rfn)) exprs))
 
   ;; Shorthand for recursive transform.
-  (define (tx e te rn vn)
-    (transform-expr e te rn vn))
-  (define (tx* es te rn vn)
-    (map (lambda (e) (tx e te rn vn)) es))
-
-  ;; Helper: check if an identifier has a given symbolic name,
-  ;; regardless of its binding (works across modules, REPL, etc.)
-  (define (id-name=? stx sym)
-    (and (identifier? stx) (eq? (syntax-e stx) sym)))
+  (define (tx e te rn vn [rfn '()])
+    (transform-expr e te rn vn rfn))
+  (define (tx* es te rn vn [rfn '()])
+    (map (lambda (e) (tx e te rn vn rfn)) es))
 
   ;; Transform a single expression.
-  (define (transform-expr stx type-env rec-names variant-names)
-    (define (tx1 e) (tx e type-env rec-names variant-names))
-    (define (tx1* es) (tx* es type-env rec-names variant-names))
+  (define (transform-expr stx type-env rec-names variant-names [rfn '()])
+    (define (tx1 e) (tx e type-env rec-names variant-names rfn))
+    (define (tx1* es) (tx* es type-env rec-names variant-names rfn))
     (syntax-case stx ()
       ;; Void expression
       [(vid) (id-name=? #'vid 'void) #'(void-expr)]
@@ -397,7 +399,7 @@
                                               #,(type-name->repr t))
                                     #,(tx1 i)))
                           vars types inits)]
-              [body-stxs (transform-body bodies type-env rec-names variant-names)])
+              [body-stxs (transform-body bodies type-env rec-names variant-names rfn)])
          #`(named-bindings '%let
                            (list #,@binds)
                            (body #,@body-stxs)))]
@@ -414,7 +416,7 @@
                                               #,(type-name->repr t))
                                     #,(tx1 i)))
                           vars types inits)]
-              [body-stxs (transform-body bodies type-env rec-names variant-names)])
+              [body-stxs (transform-body bodies type-env rec-names variant-names rfn)])
          #`(named-bindings '#,(syntax-e #'loop-name)
                            (list #,@binds)
                            (body #,@body-stxs)))]
@@ -436,13 +438,13 @@
                                       (syntax->list #'(pat-args ...)))]
                                 [case-bodies
                                  (transform-body (syntax->list #'(case-body ...))
-                                                 type-env rec-names variant-names)])
+                                                 type-env rec-names variant-names rfn)])
                            #`(match-case (ctor-pat '#,vn #,@pat-bindings)
                                          (body #,@case-bodies)))]
                         [[(vname) case-body ...]
                          (let ([case-bodies
                                 (transform-body (syntax->list #'(case-body ...))
-                                                type-env rec-names variant-names)])
+                                                type-env rec-names variant-names rfn)])
                            #`(match-case (ctor-pat '#,(syntax-e #'vname))
                                          (body #,@case-bodies)))]))
                     (syntax->list #'(clause ...)))])
@@ -496,12 +498,17 @@
        #`(ctor '#,(syntax-e #'vname) #,@(tx1* (syntax->list #'(args ...))))]
 
       ;; Record field accessor: (Point-x expr)
+      ;; Only matches if the record type AND field name are both known.
       [(accessor-id arg)
        (and (identifier? #'accessor-id)
             (let* ([s (symbol->string (syntax-e #'accessor-id))]
                    [parts (regexp-match #rx"^(.+)-(.+)$" s)])
               (and parts
-                   (memq (string->symbol (second parts)) rec-names))))
+                   (let ([tname (string->symbol (second parts))]
+                         [fname (string->symbol (third parts))])
+                     (and (memq tname rec-names)
+                          (let ([entry (assq tname rfn)])
+                            (and entry (memq fname (cdr entry)))))))))
        (let* ([s (symbol->string (syntax-e #'accessor-id))]
               [parts (regexp-match #rx"^(.+)-(.+)$" s)]
               [type-name (string->symbol (second parts))]

@@ -46,7 +46,7 @@
 
   (test-case "macro: record type"
     (define-llvm-module m
-      (define-record Point ([x : Float64] [y : Float64]))
+      (struct Point ([x : Float64] [y : Float64]))
       (: get-x (-> Float64 Float64 Float64))
       (define (get-x a b)
         (Point-x (Point a b))))
@@ -232,7 +232,7 @@
     ;; Exact scenario from REPL: sqr returns Float64, used in + in another function
     (define-llvm-module m
       (define (sqr [x : Float64]) (* x x))
-      (define-record Point ([x : Float64] [y : Float64]))
+      (struct Point ([x : Float64] [y : Float64]))
       (define (distance-sq [p : Point] [q : Point])
         (let ([dx : Float64 (- (Point-x p) (Point-x q))]
               [dy : Float64 (- (Point-y p) (Point-y q))])
@@ -242,9 +242,9 @@
 
   ;; ---- Generated Racket structs for records -----------------------------------
 
-  (test-case "macro: define-record generates Racket struct"
+  (test-case "macro: struct generates Racket struct"
     (define-llvm-module m2
-      (define-record Point ([x : Float64] [y : Float64]))
+      (struct Point ([x : Float64] [y : Float64]))
       (define (get-x [p : Point]) (Point-x p)))
     ;; Point struct should exist as a Racket struct
     (define p (Point 3.0 4.0))
@@ -254,7 +254,7 @@
 
   (test-case "contract: record rejects wrong field type"
     (define-llvm-module m-ct
-      (define-record Pt ([x : Float64] [y : Float64]))
+      (struct Pt ([x : Float64] [y : Float64]))
       (define (get-x [p : Pt]) (Pt-x p)))
     (check-exn #rx"expected Float64"
                (lambda () (Pt "hello" 2.0)))
@@ -289,7 +289,7 @@
 
   (test-case "call: pass record struct instance"
     (define-llvm-module m4
-      (define-record Point ([x : Float64] [y : Float64]))
+      (struct Point ([x : Float64] [y : Float64]))
       (define (get-x [p : Point]) (Point-x p)))
     (check-= (call m4 get-x (Point 3.0 4.0)) 3.0 0.0))
 
@@ -309,7 +309,7 @@
 
   (test-case "call: function returning record gives Racket struct"
     (define-llvm-module m6
-      (define-record Point ([x : Float64] [y : Float64]))
+      (struct Point ([x : Float64] [y : Float64]))
       (define (make-pt [x : Float64] [y : Float64])
         (Point x y)))
     (define result (call m6 make-pt 3.0 4.0))

@@ -127,7 +127,7 @@
 ;; func-env: alist of (func-name . (list param-types return-type))
 ;; for resolving function calls.
 
-(define (infer-type expr env [func-env '()])
+(define (infer-type expr env [func-env '()] [rec-env (hash)] [variant->sum (hash)])
   (cond
     [(lit? expr)
      (lit-type expr)]
@@ -138,27 +138,27 @@
     [(op-app? expr)
      (define arg-types
        (for/list ([a (in-list (op-app-args expr))])
-         (infer-type a env func-env)))
+         (infer-type a env func-env rec-env variant->sum)))
      (apply op-result-type (op-app-operator expr) arg-types)]
 
     [(icmp-app? expr)
      (define arg-types
        (for/list ([a (in-list (icmp-app-args expr))])
-         (infer-type a env func-env)))
+         (infer-type a env func-env rec-env variant->sum)))
      (apply icmp-result-type (icmp-app-predicate expr) arg-types)]
 
     [(fcmp-app? expr)
      (define arg-types
        (for/list ([a (in-list (fcmp-app-args expr))])
-         (infer-type a env func-env)))
+         (infer-type a env func-env rec-env variant->sum)))
      (apply fcmp-result-type (fcmp-app-predicate expr) arg-types)]
 
     [(if-form? expr)
-     (define cond-type (infer-type (if-form-condition expr) env func-env))
+     (define cond-type (infer-type (if-form-condition expr) env func-env rec-env variant->sum))
      (unless (equal? cond-type i1)
        (error 'type-check "if condition must be i1, got ~a" cond-type))
-     (define then-type (infer-type (if-form-then expr) env func-env))
-     (define else-type (infer-type (if-form-else expr) env func-env))
+     (define then-type (infer-type (if-form-then expr) env func-env rec-env variant->sum))
+     (define else-type (infer-type (if-form-else expr) env func-env rec-env variant->sum))
      ;; loop-recur is compatible with any type (the other branch determines it)
      (cond
        [(loop-recur-type? then-type) else-type]
@@ -175,14 +175,17 @@
      (type-ref (rec-new-type-name expr))]
 
     [(field-ref? expr)
-     ;; Trust the declared type — validated during compilation.
-     f64]  ; placeholder
+     (define key (cons (field-ref-type-name expr) (field-ref-field-name expr)))
+     (hash-ref rec-env key
+               (lambda () (error 'type-check "unknown field ~a.~a"
+                                 (field-ref-type-name expr)
+                                 (field-ref-field-name expr))))]
 
     [(ctor? expr)
-     ;; Tagged union constructor — returns the union's type.
-     ;; We'd need a type registry to know which sum type this variant
-     ;; belongs to. For now, return a generic type-ref.
-     (type-ref (ctor-variant-name expr))]
+     ;; Tagged union constructor — returns the parent sum type.
+     (define vname (ctor-variant-name expr))
+     (define sum-name (hash-ref variant->sum vname #f))
+     (type-ref (or sum-name vname))]
 
     [(match-variant? expr)
      ;; Infer from the first case's body.
@@ -195,7 +198,7 @@
      (define ext-env
        (for/fold ([e env]) ([v (in-list bindings)])
          (env-extend e (variable-name v) (variable-type v))))
-     (infer-type (match-case-body first-case) ext-env func-env)]
+     (infer-type (match-case-body first-case) ext-env func-env rec-env variant->sum)]
 
     [(body? expr)
      (define exprs (body-exprs expr))
@@ -203,7 +206,7 @@
        (error 'type-check "body must have at least one expression"))
      (define last-type void-type)
      (for ([e (in-list exprs)])
-       (set! last-type (infer-type e env func-env)))
+       (set! last-type (infer-type e env func-env rec-env variant->sum)))
      last-type]
 
     [(named-bindings? expr)
@@ -212,7 +215,7 @@
      (define binds (named-bindings-binds expr))
      (define bind-types
        (for/list ([b (in-list binds)])
-         (infer-type (bind-init b) env func-env)))
+         (infer-type (bind-init b) env func-env rec-env variant->sum)))
      ;; Extend env with loop variables
      (define loop-env
        (env-extend*
@@ -227,7 +230,7 @@
                    (list (map (lambda (b) (variable-type (bind-variable b))) binds)
                          #f))  ; return type unknown until body is checked
              func-env))
-     (infer-type (named-bindings-body expr) loop-env loop-func-env)]
+     (infer-type (named-bindings-body expr) loop-env loop-func-env rec-env variant->sum)]
 
     [(app? expr)
      ;; Function or loop application.
@@ -240,7 +243,7 @@
         (if entry
             (let* ([info (cdr entry)]
                    [arg-types (for/list ([a (in-list (app-args expr))])
-                                (infer-type a env func-env))])
+                                (infer-type a env func-env rec-env variant->sum))])
               (cond
                 ;; Overloaded intrinsic: all args same type, return type = arg type
                 [(eq? (car info) 'overloaded)
@@ -277,19 +280,19 @@
      (vec-type (vec-lit-element-type expr) (length (vec-lit-values expr)))]
 
     [(vec-extract? expr)
-     (define vt (infer-type (vec-extract-vec expr) env func-env))
+     (define vt (infer-type (vec-extract-vec expr) env func-env rec-env variant->sum))
      (unless (vec-type? vt)
        (error 'type-check "vec-extract requires a vector, got ~a" vt))
      (vec-type-element vt)]
 
     [(vec-insert? expr)
-     (define vt (infer-type (vec-insert-vec expr) env func-env))
+     (define vt (infer-type (vec-insert-vec expr) env func-env rec-env variant->sum))
      (unless (vec-type? vt)
        (error 'type-check "vec-insert requires a vector, got ~a" vt))
      vt]
 
     [(vec-shuffle? expr)
-     (define vt (infer-type (vec-shuffle-v1 expr) env func-env))
+     (define vt (infer-type (vec-shuffle-v1 expr) env func-env rec-env variant->sum))
      (unless (vec-type? vt)
        (error 'type-check "vec-shuffle requires vectors, got ~a" vt))
      (vec-type (vec-type-element vt) (length (vec-shuffle-mask expr)))]
@@ -301,7 +304,7 @@
 
 ;; Validate a function declaration.  func-env is an alist of
 ;; (name . (param-types return-type)) for other functions in the module.
-(define (validate-func f func-env)
+(define (validate-func f func-env [rec-env (hash)] [variant->sum (hash)])
   (define params (formals-vars (func-formals f)))
   (define env
     (for/fold ([e '()]) ([p (in-list params)])
@@ -311,4 +314,4 @@
     (cons (func-name f)
           (list (map variable-type params) #f)))
   (define full-func-env (cons self-entry func-env))
-  (infer-type (func-body f) env full-func-env))
+  (infer-type (func-body f) env full-func-env rec-env variant->sum))

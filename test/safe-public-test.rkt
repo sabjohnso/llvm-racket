@@ -19,7 +19,7 @@
 
   (test-case "llvm/safe: record types via macro"
     (define-llvm-module m
-      (define-record Point ([x : Float64] [y : Float64]))
+      (struct Point ([x : Float64] [y : Float64]))
       (define (get-x [a : Float64] [b : Float64])
         (Point-x (Point a b))))
     (check-= (call m get-x 3.0 4.0) 3.0 0.0))

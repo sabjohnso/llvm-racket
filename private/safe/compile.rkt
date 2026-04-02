@@ -140,6 +140,12 @@
     (for/list ([o (in-list overloaded)])
       (cons (overloaded-intrinsic-name o) (list 'overloaded (overloaded-intrinsic-arity o)))))
 
+  ;; Build rec-env for field type lookups: (type-name . field-name) → field-type
+  (define rec-field-env
+    (for*/hash ([r (in-list recs)]
+                [f (in-list (rec-fields r))])
+      (values (cons (rec-name r) (field-name f)) (field-type f))))
+
   ;; Build func-env incrementally: validate each function, accumulating
   ;; the env with known return types so later functions can call earlier ones.
   (define func-env
@@ -149,7 +155,7 @@
           (let* ([f (car remaining)]
                  [params (formals-vars (func-formals f))]
                  [param-types (map variable-type params)]
-                 [ret-type (validate-func f env)]
+                 [ret-type (validate-func f env rec-field-env variant->sum)]
                  [new-env (cons (cons (func-name f) (list param-types ret-type)) env)])
             (loop (cdr remaining) new-env)))))
 

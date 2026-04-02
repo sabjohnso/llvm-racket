@@ -107,11 +107,11 @@ Arithmetic and comparison operators are type-overloaded: @racket[+] on
 
 @subsection{Defining Record Types}
 
-Define record (struct) types with @racket[define-record]:
+Define record types with @tt{struct}:
 
 @racketblock[
 (define-llvm-module m
-  (define-record Point ([x : Float64] [y : Float64]))
+  (struct Point ([x : Float64] [y : Float64]))
 
   (define (distance-sq [ax : Float64] [ay : Float64]
                        [bx : Float64] [by : Float64])
@@ -153,7 +153,7 @@ functions that return records or unions:
 
 @racketblock[
 (define-llvm-module m
-  (define-record Point ([x : Float64] [y : Float64]))
+  (struct Point ([x : Float64] [y : Float64]))
   (define (midpoint [p : Point] [q : Point])
     (Point (* 0.5 (+ (Point-x p) (Point-x q)))
            (* 0.5 (+ (Point-y p) (Point-y q))))))
