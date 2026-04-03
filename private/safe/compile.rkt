@@ -155,6 +155,7 @@
     (for/list ([f (in-list funcs)])
       (define params (formals-vars (func-formals f)))
       (cons (func-name f) (list (map variable-type params) #f))))
+  (define last-errors (make-hash))  ; func-name → last validation error message
   (define func-env
     (let pass ([env (append initial-func-entries base-env)]
                [iterations 0])
@@ -163,9 +164,9 @@
                   ([f (in-list funcs)])
           (define old-entry (assq (func-name f) e))
           (define old-ret (and old-entry (cadr (cdr old-entry))))
-          (define ret-type
-            (with-handlers ([exn:fail? (lambda (_) #f)])
-              (validate-func f e rec-field-env variant->sum)))
+          (define-values (ret-type err-msg)
+            (with-handlers ([exn:fail? (lambda (e) (values #f (exn-message e)))])
+              (values (validate-func f e rec-field-env variant->sum) #f)))
           (define actual-ret (or ret-type old-ret))
           (define entry-changed? (and ret-type (not (equal? ret-type old-ret))))
           (define params (formals-vars (func-formals f)))
@@ -173,10 +174,23 @@
           (define updated-e
             (cons (cons (func-name f) (list param-types actual-ret))
                   (filter (lambda (p) (not (eq? (car p) (func-name f)))) e)))
+          ;; Track last error per function for diagnostics
+          (when err-msg (hash-set! last-errors (func-name f) err-msg))
+          (when ret-type (hash-remove! last-errors (func-name f)))
           (values updated-e (or any-change? entry-changed?))))
       (if (and changed? (< iterations 5))
           (pass new-env (add1 iterations))
-          new-env)))
+          ;; Check for unresolved return types and report clear errors
+          (begin
+            (for ([f (in-list funcs)])
+              (define entry (assq (func-name f) new-env))
+              (when (and entry (not (cadr (cdr entry))))
+                (define err (hash-ref last-errors (func-name f) #f))
+                (error 'compile-module
+                       "could not determine return type for ~a~a"
+                       (func-name f)
+                       (if err (format "\n  reason: ~a" err) ""))))
+            new-env))))
 
   ;; Declare LLVM intrinsic functions first (user funcs may shadow them)
   (define llvm-funcs (make-hash))
@@ -456,7 +470,13 @@
      (ir-type-is-float? (lookup-type (ref-name expr)))]
     [(op-app? expr)
      (and (pair? (op-app-args expr))
-          (expr-is-float? (car (op-app-args expr))))]
+          ;; For binary ops, if either operand is float the result is float
+          ;; (literals get coerced to match the non-literal operand)
+          (if (and (= (length (op-app-args expr)) 2)
+                   (lit? (car (op-app-args expr)))
+                   (not (lit? (cadr (op-app-args expr)))))
+              (expr-is-float? (cadr (op-app-args expr)))
+              (expr-is-float? (car (op-app-args expr)))))]
     [(icmp-app? expr) #f]  ; comparisons return i1
     [(fcmp-app? expr) #f]
     [(if-form? expr) (expr-is-float? (if-form-then expr))]
@@ -487,10 +507,57 @@
     [(vec-shuffle? expr) (expr-is-float? (vec-shuffle-v1 expr))]
     [else #f]))
 
+;; Re-emit a literal with a different type if coercion is needed.
+;; For binary ops where one operand is a literal with a different type,
+;; emit the literal with the target type instead.
+(define (coerce-lit-emit expr target-type)
+  (if (and (lit? expr) (not (equal? (lit-type expr) target-type)))
+      (emit-lit (lit (lit-value expr) target-type))
+      (emit-expr expr)))
+
+;; For a binary op, determine the "dominant" type (non-literal operand's type)
+;; and coerce literals to match.
+(define (emit-op-args exprs)
+  (if (= (length exprs) 2)
+      (let ([e1 (first exprs)] [e2 (second exprs)])
+        (cond
+          ;; Both literals or same type — just emit normally
+          [(and (lit? e1) (not (lit? e2)))
+           (define v2 (emit-expr e2))
+           (define t2 (lookup-type-of-expr e2))
+           (define v1 (if t2 (coerce-lit-emit e1 t2) (emit-expr e1)))
+           (list v1 v2)]
+          [(and (lit? e2) (not (lit? e1)))
+           (define v1 (emit-expr e1))
+           (define t1 (lookup-type-of-expr e1))
+           (define v2 (if t1 (coerce-lit-emit e2 t1) (emit-expr e2)))
+           (list v1 v2)]
+          [else (map emit-expr exprs)]))
+      (map emit-expr exprs)))
+
+;; Get the IR type of an expression from the compile-time env.
+(define (lookup-type-of-expr e)
+  (cond
+    [(ref? e) (lookup-type (ref-name e))]
+    [(lit? e) (lit-type e)]
+    [(op-app? e) (and (pair? (op-app-args e)) (lookup-type-of-expr (car (op-app-args e))))]
+    [(app? e)
+     (and (ref? (app-callee e))
+          (let ([entry (assq (ref-name (app-callee e)) (current-func-env))])
+            (and entry (not (eq? (car (cdr entry)) 'overloaded))
+                 (cadr (cdr entry)))))]
+    [(field-ref? e)
+     (define info (hash-ref (current-rec-types) (field-ref-type-name e) #f))
+     (and info
+          (let ([f (assq (field-ref-field-name e) (rec-type-info-fields info))])
+            (and f (cdr f))))]
+    [else #f]))
+
 (define (emit-op expr)
   (define sym (op-app-operator expr))
-  (define args (map emit-expr (op-app-args expr)))
-  (define fl? (expr-is-float? (car (op-app-args expr))))
+  (define raw-exprs (op-app-args expr))
+  (define args (emit-op-args raw-exprs))
+  (define fl? (expr-is-float? (car raw-exprs)))
   (define b (bld))
   (cond
     [(= (length args) 2)
@@ -523,7 +590,7 @@
           [else (error 'compile "unknown icmp: ~a" p)]))
 
 (define (emit-icmp expr)
-  (define args (map emit-expr (icmp-app-args expr)))
+  (define args (emit-op-args (icmp-app-args expr)))
   (LLVM-Build-ICmp (bld) (icmp-pred->llvm (icmp-app-predicate expr))
                    (first args) (second args) ""))
 
@@ -534,7 +601,7 @@
           [else (error 'compile "unknown fcmp: ~a" p)]))
 
 (define (emit-fcmp expr)
-  (define args (map emit-expr (fcmp-app-args expr)))
+  (define args (emit-op-args (fcmp-app-args expr)))
   (LLVM-Build-FCmp (bld) (fcmp-pred->llvm (fcmp-app-predicate expr))
                    (first args) (second args) ""))
 
@@ -641,10 +708,10 @@
   (define loop-name (named-bindings-name expr))
   (define binds (named-bindings-binds expr))
 
-  ;; Compile initial values in current block
+  ;; Compile initial values in current block (coerce literals to bind type)
   (define init-vals
     (for/list ([bd (in-list binds)])
-      (emit-expr (bind-init bd))))
+      (coerce-lit-emit (bind-init bd) (variable-type (bind-variable bd)))))
   (define pre-header-bb (LLVM-Get-Insert-Block b))
 
   ;; Create loop header block and branch to it
@@ -754,11 +821,19 @@
                 (values new-fn new-ft))))
         (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")]
        [else
-        ;; Normal function call
+        ;; Normal function call — coerce literal args to match param types
         (define llvm-fn (hash-ref (current-funcs) name
                                   (lambda () (error 'compile "unknown function: ~a" name))))
         (define ft (hash-ref (current-func-types) name))
-        (define args (for/list ([a (in-list (app-args expr))]) (emit-expr a)))
+        (define entry (assq name (current-func-env)))
+        (define param-types (and entry (not (eq? (car (cdr entry)) 'overloaded))
+                                 (car (cdr entry))))
+        (define args
+          (if param-types
+              (for/list ([a (in-list (app-args expr))]
+                         [pt (in-list param-types)])
+                (coerce-lit-emit a pt))
+              (for/list ([a (in-list (app-args expr))]) (emit-expr a))))
         (LLVM-Build-Call2 (bld) ft llvm-fn args (length args) "")])]))
 
 ;; ---- Vector operations -----------------------------------------------------

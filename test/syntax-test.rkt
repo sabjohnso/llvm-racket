@@ -172,6 +172,24 @@
           (+ x y))))
     (check-equal? (call m inc 9) 10))
 
+  ;; ---- Literal type coercion ---------------------------------------------------
+
+  (test-case "coerce: int literal to Int64 in arithmetic"
+    (define-llvm-module m
+      (define (add1-64 [x : Int64]) (+ x 1)))
+    (check-equal? (call m add1-64 100) 101))
+
+  (test-case "coerce: int literal to Float64 in arithmetic"
+    (define-llvm-module m
+      (define (add-half [x : Float64]) (+ x 1)))
+    (check-= (call m add-half 2.5) 3.5 0.001))
+
+  (test-case "coerce: int literal in function call"
+    (define-llvm-module m
+      (define (id64 [x : Int64]) x)
+      (define (test [a : Int64]) (id64 1)))
+    (check-equal? (call m test 0) 1))
+
   ;; ---- Variadic operators -------------------------------------------------------
 
   (test-case "variadic: (+ a b c d) left-folds"

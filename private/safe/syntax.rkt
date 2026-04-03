@@ -386,6 +386,10 @@
       ;; Void expression
       [(vid) (id-name=? #'vid 'void) #'(void-expr)]
 
+      ;; Literal boolean
+      [val (boolean? (syntax-e #'val))
+       #`(lit #,(if (syntax-e #'val) 1 0) i1)]
+
       ;; Literal integer
       [val (exact-integer? (syntax-e #'val))
        #`(lit #,(syntax-e #'val) i32)]

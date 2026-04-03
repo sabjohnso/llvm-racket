@@ -32,6 +32,28 @@
       (float-type? t)
       (and (vec-type? t) (numeric-type? (vec-type-element t)))))
 
+;; Coerce a literal expression's type to match a target type.
+;; Integer literals can be widened to any integer or float type.
+;; Float literals can be widened to any float type.
+;; Returns the coerced type, or #f if coercion is not possible.
+(define (coerce-lit-type expr target-type)
+  (and (lit? expr)
+       (let ([lt (lit-type expr)])
+         (cond
+           ;; Int literal → any integer type
+           [(and (integer-type? lt) (integer-type? target-type)) target-type]
+           ;; Int literal → any float type
+           [(and (integer-type? lt) (float-type? target-type)) target-type]
+           ;; Float literal → any float type
+           [(and (float-type? lt) (float-type? target-type)) target-type]
+           ;; Vec of coercible elements
+           [(and (vec-type? lt) (vec-type? target-type)
+                 (= (vec-type-count lt) (vec-type-count target-type))
+                 (coerce-lit-type (lit 0 (vec-type-element lt))
+                                  (vec-type-element target-type)))
+            target-type]
+           [else #f]))))
+
 ;; ---- Operator registry -----------------------------------------------------
 
 ;; Binary arithmetic: both operands must have the same numeric type.
@@ -136,21 +158,56 @@
      (env-lookup (ref-name expr) env)]
 
     [(op-app? expr)
-     (define arg-types
-       (for/list ([a (in-list (op-app-args expr))])
+     (define args (op-app-args expr))
+     (define raw-types
+       (for/list ([a (in-list args)])
          (infer-type a env func-env rec-env variant->sum)))
+     ;; Coerce literal types: for binary ops, if types differ and one is a
+     ;; literal, promote the literal to match the other operand's type.
+     (define arg-types
+       (if (= (length args) 2)
+           (let ([t1 (car raw-types)] [t2 (cadr raw-types)]
+                 [e1 (car args)] [e2 (cadr args)])
+             (cond
+               [(equal? t1 t2) raw-types]
+               [(coerce-lit-type e1 t2) (list t2 t2)]
+               [(coerce-lit-type e2 t1) (list t1 t1)]
+               [else raw-types]))
+           raw-types))
      (apply op-result-type (op-app-operator expr) arg-types)]
 
     [(icmp-app? expr)
-     (define arg-types
-       (for/list ([a (in-list (icmp-app-args expr))])
+     (define args (icmp-app-args expr))
+     (define raw-types
+       (for/list ([a (in-list args)])
          (infer-type a env func-env rec-env variant->sum)))
+     (define arg-types
+       (if (= (length args) 2)
+           (let ([t1 (car raw-types)] [t2 (cadr raw-types)]
+                 [e1 (car args)] [e2 (cadr args)])
+             (cond
+               [(equal? t1 t2) raw-types]
+               [(coerce-lit-type e1 t2) (list t2 t2)]
+               [(coerce-lit-type e2 t1) (list t1 t1)]
+               [else raw-types]))
+           raw-types))
      (apply icmp-result-type (icmp-app-predicate expr) arg-types)]
 
     [(fcmp-app? expr)
-     (define arg-types
-       (for/list ([a (in-list (fcmp-app-args expr))])
+     (define args (fcmp-app-args expr))
+     (define raw-types
+       (for/list ([a (in-list args)])
          (infer-type a env func-env rec-env variant->sum)))
+     (define arg-types
+       (if (= (length args) 2)
+           (let ([t1 (car raw-types)] [t2 (cadr raw-types)]
+                 [e1 (car args)] [e2 (cadr args)])
+             (cond
+               [(equal? t1 t2) raw-types]
+               [(coerce-lit-type e1 t2) (list t2 t2)]
+               [(coerce-lit-type e2 t1) (list t1 t1)]
+               [else raw-types]))
+           raw-types))
      (apply fcmp-result-type (fcmp-app-predicate expr) arg-types)]
 
     [(if-form? expr)
@@ -261,8 +318,10 @@
                           "~a expects ~a args, got ~a"
                           name (length param-types) (length arg-types)))
                  (for ([at (in-list arg-types)]
-                       [pt (in-list param-types)])
-                   (unless (equal? at pt)
+                       [pt (in-list param-types)]
+                       [a  (in-list (app-args expr))])
+                   (unless (or (equal? at pt)
+                               (coerce-lit-type a pt))
                      (error 'type-check
                             "~a argument type mismatch: expected ~a, got ~a"
                             name pt at)))
