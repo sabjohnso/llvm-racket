@@ -109,19 +109,59 @@
   (define (id-name=? stx sym)
     (and (identifier? stx) (eq? (syntax-e stx) sym)))
 
+  ;; Pre-scan forms to collect all type names (records, unions, variants)
+  ;; so that function bodies can reference types defined later.
+  (define (pre-scan-types forms)
+    (let loop ([remaining forms]
+               [rn '()] [rfn '()] [vn '()] [un '()])
+      (if (null? remaining)
+          (values rn rfn vn un)
+          (let ([form (car remaining)])
+            (cond
+              [(syntax-case form ()
+                 [(kid name (clause ...)) (id-name=? #'kid 'struct) #t]
+                 [_ #f])
+               (syntax-case form (:)
+                 [(_ name (clause ...))
+                  (let* ([rname (syntax-e #'name)]
+                         [fnames (map (lambda (c)
+                                        (syntax-case c (:) [[fn : _] (syntax-e #'fn)]))
+                                      (syntax->list #'(clause ...)))])
+                    (loop (cdr remaining)
+                          (cons rname rn)
+                          (cons (cons rname fnames) rfn)
+                          vn un))])]
+              [(syntax-case form ()
+                 [(kid name clause ...) (id-name=? #'kid 'union) #t]
+                 [_ #f])
+               (syntax-case form (:)
+                 [(_ name clause ...)
+                  (let* ([uname (syntax-e #'name)]
+                         [new-vn (map (lambda (c)
+                                        (syntax-case c (:)
+                                          [[vname ([_ : _] ...)] (syntax-e #'vname)]
+                                          [[vname] (syntax-e #'vname)]))
+                                      (syntax->list #'(clause ...)))])
+                    (loop (cdr remaining) rn rfn
+                          (append new-vn vn)
+                          (cons uname un)))])]
+              [else (loop (cdr remaining) rn rfn vn un)])))))
+
   ;; Process module body: collect type annotations and definitions.
   ;; Returns four values: (decls, includes, struct-defs, registry-entries).
   (define (process-module-body forms)
+    ;; Pre-scan to get all type names regardless of definition order.
+    (define-values (pre-rn pre-rfn pre-vn pre-un) (pre-scan-types forms))
     (let loop ([remaining forms]
                [type-env '()]      ; ((name param-types ret-type) ...)
                [decls '()]
                [includes '()]      ; library expressions for #:include
                [struct-defs '()]   ; Racket struct definitions to generate
                [reg-entries '()]   ; type registry entries for marshalling
-               [rec-names '()]     ; known record type names
-               [rec-field-names '()] ; ((rec-name field-name ...) ...)
-               [variant-names '()] ; known variant constructor names
-               [union-names '()])  ; known union type names
+               [rec-names pre-rn]     ; pre-populated with all record names
+               [rec-field-names pre-rfn] ; pre-populated with all field maps
+               [variant-names pre-vn] ; pre-populated with all variant names
+               [union-names pre-un])  ; pre-populated with all union names
       (cond
         [(null? remaining)
          (values (reverse decls) (reverse includes)

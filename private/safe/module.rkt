@@ -106,19 +106,34 @@
     (for*/hash ([s (in-list (filter sum? all-decls))]
                 [v (in-list (sum-variants s))])
       (values (variant-name v) (sum-name s))))
+  (define mod-funcs (filter func? all-decls))
+  (define base-env (append overloaded-env intrinsic-env))
+  (define initial-func-entries
+    (for/list ([f (in-list mod-funcs)])
+      (define params (formals-vars (func-formals f)))
+      (cons (func-name f) (list (map variable-type params) #f))))
   (define func-env
-    (let loop ([remaining (filter func? all-decls)]
-               [env (append overloaded-env intrinsic-env)])
-      (if (null? remaining)
-          env
-          (let* ([f (car remaining)]
-                 [params (formals-vars (func-formals f))]
-                 [param-types (map variable-type params)]
-                 [ret-type (validate-func f env rec-field-env mod-variant->sum)]
-                 [new-env (cons (cons (func-name f)
-                                      (list param-types ret-type))
-                                env)])
-            (loop (cdr remaining) new-env)))))
+    (let pass ([env (append initial-func-entries base-env)]
+               [iterations 0])
+      (define-values (new-env changed?)
+        (for/fold ([e env] [any-change? #f])
+                  ([f (in-list mod-funcs)])
+          (define old-entry (assq (func-name f) e))
+          (define old-ret (and old-entry (cadr (cdr old-entry))))
+          (define ret-type
+            (with-handlers ([exn:fail? (lambda (_) #f)])
+              (validate-func f e rec-field-env mod-variant->sum)))
+          (define actual-ret (or ret-type old-ret))
+          (define entry-changed? (and ret-type (not (equal? ret-type old-ret))))
+          (define params (formals-vars (func-formals f)))
+          (define param-types (map variable-type params))
+          (define updated-e
+            (cons (cons (func-name f) (list param-types actual-ret))
+                  (filter (lambda (p) (not (eq? (car p) (func-name f)))) e)))
+          (values updated-e (or any-change? entry-changed?))))
+      (if (and changed? (< iterations 5))
+          (pass new-env (add1 iterations))
+          new-env)))
 
   (safe-module jit func-env ir all-decls type-registry))
 

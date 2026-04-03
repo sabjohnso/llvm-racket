@@ -146,18 +146,37 @@
                 [f (in-list (rec-fields r))])
       (values (cons (rec-name r) (field-name f)) (field-type f))))
 
-  ;; Build func-env incrementally: validate each function, accumulating
-  ;; the env with known return types so later functions can call earlier ones.
+  ;; Build func-env with all function names visible (forward references OK).
+  ;; Pass 1: seed all names with param types and #f return types.
+  ;; Pass 2: validate each function with all names visible, fill in return types.
+  ;; If pass 2 resolves new types, repeat until stable (handles transitive deps).
+  (define base-env (append overloaded-env intrinsic-env))
+  (define initial-func-entries
+    (for/list ([f (in-list funcs)])
+      (define params (formals-vars (func-formals f)))
+      (cons (func-name f) (list (map variable-type params) #f))))
   (define func-env
-    (let loop ([remaining funcs] [env (append overloaded-env intrinsic-env)])
-      (if (null? remaining)
-          env
-          (let* ([f (car remaining)]
-                 [params (formals-vars (func-formals f))]
-                 [param-types (map variable-type params)]
-                 [ret-type (validate-func f env rec-field-env variant->sum)]
-                 [new-env (cons (cons (func-name f) (list param-types ret-type)) env)])
-            (loop (cdr remaining) new-env)))))
+    (let pass ([env (append initial-func-entries base-env)]
+               [iterations 0])
+      (define-values (new-env changed?)
+        (for/fold ([e env] [any-change? #f])
+                  ([f (in-list funcs)])
+          (define old-entry (assq (func-name f) e))
+          (define old-ret (and old-entry (cadr (cdr old-entry))))
+          (define ret-type
+            (with-handlers ([exn:fail? (lambda (_) #f)])
+              (validate-func f e rec-field-env variant->sum)))
+          (define actual-ret (or ret-type old-ret))
+          (define entry-changed? (and ret-type (not (equal? ret-type old-ret))))
+          (define params (formals-vars (func-formals f)))
+          (define param-types (map variable-type params))
+          (define updated-e
+            (cons (cons (func-name f) (list param-types actual-ret))
+                  (filter (lambda (p) (not (eq? (car p) (func-name f)))) e)))
+          (values updated-e (or any-change? entry-changed?))))
+      (if (and changed? (< iterations 5))
+          (pass new-env (add1 iterations))
+          new-env)))
 
   ;; Declare LLVM intrinsic functions first (user funcs may shadow them)
   (define llvm-funcs (make-hash))
