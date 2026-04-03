@@ -74,16 +74,22 @@
           (= (length arg-types) 2))
      (define t1 (car arg-types))
      (define t2 (cadr arg-types))
-     (unless (and (numeric-type? t1) (equal? t1 t2))
-       (error 'op-result-type
-              "operator '~a requires matching numeric types, got ~a and ~a"
-              op-sym t1 t2))
-     t1]
+     ;; loop-recur is compatible with any type (self-recursive calls)
+     (cond
+       [(and (loop-recur-type? t1) (loop-recur-type? t2)) loop-recur]
+       [(loop-recur-type? t1) t2]
+       [(loop-recur-type? t2) t1]
+       [else
+        (unless (and (numeric-type? t1) (equal? t1 t2))
+          (error 'op-result-type
+                 "operator '~a requires matching numeric types, got ~a and ~a"
+                 op-sym t1 t2))
+        t1])]
     ;; Unary arithmetic
     [(and (memq op-sym unary-arith-ops)
           (= (length arg-types) 1))
      (define t (car arg-types))
-     (unless (numeric-type? t)
+     (when (and (not (numeric-type? t)) (not (loop-recur-type? t)))
        (error 'op-result-type
               "operator '~a requires a numeric type, got ~a" op-sym t))
      t]
@@ -368,9 +374,13 @@
   (define env
     (for/fold ([e '()]) ([p (in-list params)])
       (env-extend e (variable-name p) (variable-type p))))
-  ;; Add self to func-env for recursive calls
+  ;; Add self to func-env for recursive calls.
+  ;; Preserve any existing return type from the env (from prior iteration passes)
+  ;; so self-recursive calls can resolve.
+  (define existing (assq (func-name f) func-env))
+  (define existing-ret (and existing (cadr (cdr existing))))
   (define self-entry
     (cons (func-name f)
-          (list (map variable-type params) #f)))
+          (list (map variable-type params) existing-ret)))
   (define full-func-env (cons self-entry func-env))
   (infer-type (func-body f) env full-func-env rec-env variant->sum))
